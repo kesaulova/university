@@ -63,8 +63,8 @@ def log_product(loga, logb):
     """
     if math.isnan(loga) or math.isnan(logb):
         return float('NaN')
-    elif loga == 0 or logb == 0:
-        return 0
+    #elif loga == 0 or logb == 0:
+    #    return 0
     else:
         return loga + logb
 

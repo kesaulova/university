@@ -50,7 +50,8 @@ class HmmRecord:
         """
         if state == 'Deletion':
             return homopolymer()
-        #if state == 'Begin'
+        if state == 'Begin':
+            return homopolymer()
         if state == 'Match':
             #[h.length + 1] - count from 0
             bins = numpy.cumsum(self.__emissionMatchProbabilities[h.base][h.length - 1])
@@ -74,6 +75,8 @@ class HmmRecord:
         :param g: output homopolymer
         :return: probability that state 'state' emits g with given h
         """
+        if state == 'Begin':
+            return 1
         if state == 'Deletion':
             return 1
         if state == 'Match':
@@ -161,7 +164,7 @@ class HmmModel:
             if information[0] == '-:':
                 base_call_probabilities = [float(information[i]) for i in range(1, len(information))]
             elif information[0] == 'Begin':
-                self.initial_probabilities = [float(information[i]) for i in range(1, len(information))]
+                 transition_probabilities['Begin'] = [float(information[i]) for i in range(1, len(information))]
             elif information[0] == 'Match':
                 transition_probabilities['Match'] = [float(information[i]) for i in range(1, len(information))]
             elif information[0] == 'Insertion':
@@ -176,7 +179,7 @@ class HmmModel:
     def __init__(self, *args):
         self.__modelLength = 20
         self.states = ['Match', 'Deletion', 'Insertion', 'End']
-        self.initial_probabilities = []
+        # self.initial_probabilities = []
         self.HMM = []
         if len(args) == 0:
             # create test model
@@ -197,10 +200,13 @@ def create_sequence(model, max_size, reference):
     # get initial state, set model size to 0, reference position to 0
     current_state_number = 0
     current_reference_number = 0
-    current_state = model.states[discrete_distribution(model.initial_probabilities)]
+    # current_state = model.states[discrete_distribution(model.initial_probabilities)]
+    current_state = 'Begin'
     state_path.append([current_state_number, current_state])
+
     # count for number of insertions
     number_insertions = 0
+    """
     if current_state == 'Match':
         current_HP = model.HMM[0].emission(reference[0], 'Match')
         current_reference_number += 1
@@ -211,7 +217,7 @@ def create_sequence(model, max_size, reference):
         current_HP = homopolymer()
         current_reference_number += 1
     sequence.append(current_HP)
-
+    """
     while current_state_number != max_size:
         # get next state, while length of model allow us do it
         next_state = model.HMM[current_state_number].transition(current_state)
@@ -224,14 +230,17 @@ def create_sequence(model, max_size, reference):
             current_reference_number += 1
             current_state_number += 1
             number_insertions = 0
-        if next_state == 'Insertion':
+        elif next_state == 'Insertion':
             current_HP = model.HMM[current_state_number].emission(reference[current_reference_number], 'Insertion')
             number_insertions += 1
-        if next_state == 'Deletion':
+        elif next_state == 'Deletion':
             current_HP = homopolymer()
             current_reference_number += 1
             current_state_number += 1
             number_insertions = 0
+        else:
+            print 'hmm.py, 242 line, error!'
+            exit(1)
         sequence.append(current_HP)
         state_path.append([current_state_number, next_state])
         if next_state == 'End' or current_reference_number == len(reference):
@@ -295,6 +304,7 @@ def parse_backtracking(index_string):
     :param index_string: string whith numbers, separated by \t
     :return: List with four elements
     """
+    print index_string
     if index_string == 'Begin':
         return [0, 0, 0, 0]
     else:
@@ -311,12 +321,21 @@ def length_first_hp(read):
             break
     return result
 
+def length_last_hp(read):
+    result = 1
+    base = read[len(read) - 1]
+    for i in range(len(read) - 2, -1):
+        if read[i] == base:
+            result += 1
+        else:
+            break
+    return result
+
 
 def viterbi_initialize(model, reference, read, k_max, viterbi_probability,  viterbi_backtracking):
     states = {0: 'Match', 1: 'Deletion', 2: 'Insertion'}
     # V(0,j,0,M) = V(0,j,0,I) = 0, V(0,j,0,D) != 0
-    print viterbi_backtracking.shape
-    print viterbi_probability.shape
+    print 'Shape of Viterbi matrix: ', viterbi_backtracking.shape
     viterbi_probability[0][0][0][0] = 0
     viterbi_backtracking[0][0][0][0] = 'Impossible'
     viterbi_probability[0][0][0][1] = 0
@@ -336,7 +355,7 @@ def viterbi_initialize(model, reference, read, k_max, viterbi_probability,  vite
         viterbi_probability[0][j][0][2] = 0
         viterbi_backtracking[0][j][0][2] = 'Impossible'
         if j == 1:
-            viterbi_probability[0][j][0][1] = eln(model.initial_probabilities[1])
+            viterbi_probability[0][j][0][1] = eln(model.HMM[0].transition('Begin', 'Deletion'))
             # print 0, j, 0, states[1], viterbi_probability[0][j][0][1]
             viterbi_backtracking[0][j][0][1] = 'Begin'
         else:
@@ -356,28 +375,32 @@ def viterbi_initialize(model, reference, read, k_max, viterbi_probability,  vite
             # 1:k_max[i - k], because there is no deletions
             # First, initialize V(i,0,k,I) when i < k_max[(len(first homopolymer)], because in this case transition
             # probabilities is initial probabilities
-            if i <= length_first_hp(read):
-                for k_prev in range(1, k_max[i] + 1):
-                    viterbi_probability[i][0][k_prev][2] = eln(model.initial_probabilities[2])
-                    viterbi_backtracking[i][0][k_prev][2] = 'Begin'
-                    #print i, 0, k_prev, states[2], viterbi_backtracking[i][0][k_prev][2]
-            else:
-                max_prob = float("-inf")
-                number = [0, 0, 0, 0]
+            if k == i == length_first_hp(read):     # case V(i, 0, i, Insertion) - come from begining, i = len(firstHP)
+                trans_prob = eln(model.HMM[0].transition('Begin', 'Insertion'))
                 current_hp = homopolymer(read[i], k)
-                for k_prev in range(1, k_max[i - k] + 1):
-                    # Have to find max among V(i - k, 0, 1:k_max[i - k], Insertion)
-                    if viterbi_probability[i - k][0][k_prev][2] > max_prob:
-                        max_prob = viterbi_probability[i - k][0][k_prev][2]
-                        number = [i - k, 0, k_prev, 2]
-                    # count probability
-                trans_prob = eln(model.HMM[0].transition('Insertion', 'Insertion'))
                 emiss_prob = eln(model.HMM[0].emission(homopolymer(), current_hp, 'Insertion'))
-                viterbi_probability[i][0][k][2] = iter_plog([max_prob, trans_prob, emiss_prob])
-                viterbi_backtracking[i][0][k][2] = str(number[0]) + ' ' + str(number[1]) + ' ' + str(number[2]) + \
-                                                       ' ' + str(number[3])
-    return viterbi_probability, viterbi_backtracking
+                viterbi_probability[i][0][k][2] = log_product(trans_prob, emiss_prob)
+                viterbi_backtracking[i][0][k][2] = 'Begin'
+                continue
 
+            max_prob = float("-inf")
+            number = [0, 0, 0, 0]
+            current_hp = homopolymer(read[i], k)
+            value = 0
+            for k_prev in range(1, k_max[i - k] + 1):
+                # value = tran_prob * V(previous)
+                value = log_product(eln(model.HMM[0].transition('Insertion', 'Insertion')),
+                                     viterbi_probability[i - k][0][k_prev][2])
+                # Have to find max among V(i - k, 0, 1:k_max[i - k], Insertion)
+                if value > max_prob:
+                    max_prob = value
+                    number = [i - k, 0, k_prev, 2]
+                # count probability
+            emiss_prob = eln(model.HMM[0].emission(homopolymer(), current_hp, 'Insertion'))
+            viterbi_probability[i][0][k][2] = log_product(value, emiss_prob)
+            viterbi_backtracking[i][0][k][2] = str(number[0]) + ' ' + str(number[1]) + ' ' + str(number[2]) + \
+                                                   ' ' + str(number[3])
+    return viterbi_probability, viterbi_backtracking
 
 def viterbiPath(read, reference, model):
     """
@@ -407,97 +430,126 @@ def viterbiPath(read, reference, model):
                 # process 'Match' case: V(i, j, k, M) = max(k',pi')(V(i - k, j - 1, k', pi')*p(M|pi')*emission
                 if read[i] != reference[j].base:    # in Match bases should be the same, not the different
                     viterbi_probability[i][j][k][0] = 0
+                    viterbi_backtracking[i][j][k][0] = 'No sense'
                     print i, j, k, states[0], 'Prob: ', viterbi_probability[i][j][k][0], read[i], reference[j].base
-                else:
-                    max_prob = float("-inf")
-                    prev_index = [0]*4
-                    # previous homopolymer can have length from 1 to k_max[prev] + 1
-                    # we want to find most probable path until this moment
-                    for k_prev in range(1, k_max[i - k] + 1):
-                        emiss_prob = eln(model.HMM[j].emission(reference[j], homopolymer(read[i], k), 'Match'))
-                        for state in states:    # from what state we come
-                            trans_prob = eln(model.HMM[j - 1].transition(states[prev_index[3]], 'Match'))
-                            print 'Previous', i - k, j - 1, k_prev, states[state], \
-                                viterbi_probability[i - k][j - 1][k_prev][state], i, j, k, k_prev
-                            value = log_product(viterbi_probability[i - k][j - 1][k_prev][state], trans_prob)
-                            # our matrix fill with zeros, but logarithm from probability is negative. Should remember
-                            # about that when trying to find max
-                            if (max_prob == 0 or value == 0) and \
-                                            max_prob != float("-inf"):
-                                if abs(viterbi_probability[i - k][j - 1][k_prev][state]) > abs(max_prob):
-                                    max_prob = viterbi_probability[i - k][j - 1][k_prev][state]
-                                    prev_index = [i - k, j - 1, k_prev, state]
-                            elif viterbi_probability[i - k][j - 1][k_prev][state] > max_prob:
-                                max_prob = viterbi_probability[i - k][j - 1][k_prev][state]
+                    continue
+                max_prob = float("-inf")
+                prev_index = [0]*4
+                emiss_prob = eln(model.HMM[j].emission(reference[j], homopolymer(read[i], k), 'Match'))
+                # previous homopolymer can have length from 1 to k_max[prev] + 1
+                # we want to find most probable path until this moment
+                for k_prev in range(1, k_max[i - k] + 1):
+                    for state in states:    # from what state we come
+                        trans_prob = eln(model.HMM[j - 1].transition(states[state], 'Match'))
+                        value = log_product(viterbi_probability[i - k][j - 1][k_prev][state], trans_prob)
+                        print 'Previous 445 line ', i - k, j - 1, k_prev, states[state], 'prob', value, i, j, k
+                        if value == 0:
+                            continue
+                        # our matrix fill with zeros, but logarithm from probability is negative. Should remember
+                        # about that when trying to find max
+                        if (max_prob == 0 or value == 0) and max_prob != float("-inf"):
+                            if abs(value) > abs(max_prob):
+                                max_prob = value
                                 prev_index = [i - k, j - 1, k_prev, state]
-                    # check if we come from begin
-                    if i <= length_first_hp(read) and j == 1:
-                        trans_prob = eln(model.initial_probabilities[0])
-                        max_prob = 1
+                        elif value > max_prob:
+                            max_prob = value
+                            prev_index = [i - k, j - 1, k_prev, state]
+                # check if we come from begin. It can be if j == 1 and in read we in first HP
+                if i <= length_first_hp(read) and j == 1:
+                    from_begin = eln(model.HMM[0].transition('Begin', 'Match'))
+                    if from_begin > max_prob:
+                        viterbi_probability[i][j][k][0] = log_product(from_begin, emiss_prob)
                         viterbi_backtracking[i][j][k][0] = 'Begin'
-                    else:
-                        trans_prob = eln(model.HMM[j - 1].transition(states[prev_index[3]], 'Match'))
-                        viterbi_backtracking[i][j][k][0] = str(prev_index[0]) + ' ' + str(prev_index[1]) + ' ' + \
-                                                       str(prev_index[2]) + '\t' + str(prev_index[3])
-                    emiss_prob = eln(model.HMM[j].emission(reference[j], homopolymer(read[i], k), 'Match'))
-                    viterbi_probability[i][j][k][0] = iter_plog([max_prob, trans_prob, emiss_prob])
-                    print 'Previous - max', max_prob, prev_index
-                    print i, j, k, states[0], 'Prob: ', viterbi_probability[i][j][k][0], read[i], reference[j].base
+                        prev_index = 'Begin'
+                        print 'Previous 464 line - max', max_prob, prev_index
+                        print i, j, k, states[0], 'Prob: ', viterbi_probability[i][j][k][0], read[i], reference[j].base
+                        continue
+                viterbi_backtracking[i][j][k][0] = str(prev_index[0]) + ' ' + str(prev_index[1]) + ' ' + \
+                                                   str(prev_index[2]) + ' ' + str(prev_index[3])
+                viterbi_probability[i][j][k][0] = log_product(max_prob, emiss_prob)
+                print 'Previous 470 line - max', max_prob, prev_index
+                print i, j, k, states[0], 'Prob: ', viterbi_probability[i][j][k][0], read[i], reference[j].base
 
                 # process 'Insertion' case: V(i, j, k, I) = max(k',pi')(V(i - k, j, k', pi')*p(I|pi')*emission
                 # almost same, but here j not changed
                 max_prob = float("-inf")
                 prev_index = [0]*4
+                emiss_prob = eln(model.HMM[j].emission(homopolymer(), homopolymer(read[i], k), 'Insertion'))
+                # for what is this chunk 0__0 - when we at first HP
                 if k_max[i - k] == 0:
                     for state in states:
-                        print 'Previous:', i - k, j, 0, states[state], viterbi_probability[i - k][j][0][state]
-                        if (max_prob == 0 or viterbi_probability[i - k][j][0][state] == 0) and max_prob != float("-inf"):
-                            if abs(viterbi_probability[i - k][j][0][state]) > abs(max_prob):
-                                max_prob = viterbi_probability[i - k][j][0][state]
+                        value = log_product(viterbi_probability[i - k][j][0][state],
+                                            eln(model.HMM[j].transition(states[prev_index[3]], 'Insertion')))
+                        print 'Previous 483 line:', i - k, j, 0, states[state], value
+                        if (max_prob == 0 or value == 0) and max_prob != float("-inf"):
+                            if abs(value) > abs(max_prob):
+                                max_prob = value
                                 prev_index = [i - k, j, 0, state]
-                        elif viterbi_probability[i - k][j][0][state] > max_prob:
-                            max_prob = viterbi_probability[i - k][j][0][state]
+                        elif value > max_prob:
+                            max_prob = value
                             prev_index = [i - k, j, 0, state]
                 for k_prev in range(1, k_max[i - k] + 1):
                     for state in states:
-                        print 'Previous:', i - k, j, k_prev, states[state], viterbi_probability[i - k][j][k_prev][state]
-                        if (max_prob == 0 or viterbi_probability[i - k][j][k_prev][state] == 0) and max_prob != float("-inf"):
-                            if abs(viterbi_probability[i - k][j][k_prev][state]) > abs(max_prob):
-                                max_prob = viterbi_probability[i - k][j][k_prev][state]
+                        value = log_product(viterbi_probability[i - k][j][k_prev][state],
+                                            eln(model.HMM[j].transition(states[prev_index[3]], 'Insertion')))
+                        print 'Previous 495 line:', i - k, j, k_prev, states[state], value
+                        if value == 0:
+                            continue
+                        if (max_prob == 0 or value == 0) and max_prob != float("-inf"):
+                            if abs(value) > abs(max_prob):
+                                max_prob = value
                                 prev_index = [i - k, j, k_prev, state]
-                        elif viterbi_probability[i - k][j][k_prev][state] > max_prob:
-                            max_prob = viterbi_probability[i - k][j][k_prev][state]
+                        elif value > max_prob:
+                            max_prob = value
                             prev_index = [i - k, j, k_prev, state]
+
                 if max_prob == float("-inf"):
                     max_prob = 0
-                trans_prob = eln(model.HMM[j].transition(states[prev_index[3]], 'Insertion'))
-                emiss_prob = eln(model.HMM[j].emission(homopolymer(), homopolymer(read[i], k), 'Insertion'))
-                viterbi_probability[i][j][k][2] = iter_plog([max_prob, trans_prob, emiss_prob])
-                print 'Previous - max', max_prob, prev_index
+                viterbi_probability[i][j][k][2] = log_product(value, emiss_prob)
+                print 'Previous 509 line - max', max_prob, prev_index
                 print i, j, k, states[2], viterbi_probability[i][j][k][2]
                 viterbi_backtracking[i][j][k][2] = str(prev_index[0]) + ' ' + str(prev_index[1]) + ' ' + str(prev_index[2]) + \
-                                                   '\t' + str(prev_index[3])
+                                                   ' ' + str(prev_index[3])
 
                 # process 'Deletion' case: V(i, j, k, I) = max(pi')(V(i, j - 1, k', pi')*p(D|pi')*emission of '-'
                 max_prob = float("-inf")
                 prev_index = []
                 for state in states:
-                    if (max_prob == 0 or viterbi_probability[i][j - 1][k][state] == 0) and max_prob != float("-inf"):
-                        if abs(viterbi_probability[i][j - 1][k][state]) > abs(max_prob):
-                            max_prob = viterbi_probability[i][j - 1][k][state]
+                    value = log_product(eln(model.HMM[j - 1].transition(states[state], 'Deletion')),
+                                        viterbi_probability[i][j - 1][k][state])
+                    if (max_prob == 0 or value == 0) and max_prob != float("-inf"):
+                        if abs(value) > abs(max_prob):
+                            max_prob = value
                             prev_index = [i, j - 1, k, state]
-                    elif viterbi_probability[i][j - 1][k][state] > max_prob:
-                        max_prob = viterbi_probability[i][j - 1][k][state]
+                    elif value > max_prob:
+                        max_prob = value
                         prev_index = [i, j - 1, k, state]
                 if max_prob == float("-inf"):
                     max_prob = 0
-                trans_prob = eln(model.HMM[j - 1].transition(states[prev_index[3]], 'Deletion'))
-                #emiss_prob = eln(model.HMM[j].emission(reference[j], homopolymer(), 'Deletion'))
-                emiss_prob = 1
-                viterbi_probability[i][j][k][1] = iter_plog([max_prob, trans_prob, emiss_prob])
-                print 'Previous: - max', max_prob, prev_index
+                viterbi_probability[i][j][k][1] = value
+                print 'Previous 530 line: - max', max_prob, prev_index
                 print i, j, k, states[1], viterbi_probability[i][j][k][1]
                 viterbi_backtracking[i][j][k][1] = str(prev_index[0]) + ' ' + str(prev_index[1]) + ' ' + str(prev_index[2]) + \
-                                                   '\t' + str(prev_index[3])
+                                                   ' ' + str(prev_index[3])
 
     return viterbi_probability, viterbi_backtracking
+
+def parse_viterbi(probability, backtracking, reference_length, read):
+    print read
+    read_length = len(read)
+    last_hp = length_last_hp(read)
+    shape = backtracking.shape
+    print probability[read_length][reference_length][last_hp]
+    # get number of state with max prob
+    state_max = numpy.argmax(probability[read_length][reference_length][last_hp][0:3])
+    print state_max, last_hp, shape, read_length, reference_length
+    states = {0: 'Match', 1: 'Deletion', 2: 'Insertion'}
+    path = []
+    inf = parse_backtracking(backtracking[read_length][reference_length][last_hp][state_max])
+    path.append(states[inf[3]])
+    while backtracking[inf[0]][inf[1]][inf[2]][inf[3]] != 'Begin':
+        print backtracking[inf[0]][inf[1]][inf[2]][inf[3]]
+        inf = parse_backtracking(backtracking[inf[0]][inf[1]][inf[2]][inf[3]])
+        path.append(states[inf[3]])
+    return path[::-1]
+

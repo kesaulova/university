@@ -46,6 +46,8 @@ def test_viterbi_initialize(read, reference, model):
     return 0
 
 
+
+
 def main():
     hmm_test = HmmModel()
     reference_test = test_reference(2)
@@ -64,7 +66,7 @@ def main():
 
     test_viterbi_initialize(sequence, reference_test, hmm_test)
     viterbi_probability, viterbi_backtracking = hmm.viterbiPath(hmm.homopolymer_to_nucleotide(sequence), reference_test, hmm_test)
-
+    print hmm.parse_viterbi(viterbi_probability, viterbi_backtracking, len(reference_test), hmm.homopolymer_to_nucleotide(sequence))
 
     return 0
 

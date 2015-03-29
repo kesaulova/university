@@ -34,7 +34,7 @@ class HmmRecord:
         :return:
         """
         self.bases = ['A', 'C', 'G', 'T']
-        self.states = ['Match', 'Deletion', 'Insertion', 'End', 'Begin']
+        self.states = ['Match', 'Deletion', 'Insertion', 'Begin', 'End']
         self.__emissionInsertionBaseProbabilities = baseCall['-']
         self.__emissionInsertionLengthProbabilities = {'A': lengthCallInsertion['A'], 'C': lengthCallInsertion['C'],
                                                        'G': lengthCallInsertion['G'], 'T': lengthCallInsertion['T']}
@@ -80,11 +80,17 @@ class HmmRecord:
         if state == 'Begin':
             return 1
         if state == 'Deletion':
+            if g.base != '-' or h.base == '-':   # if it is not deletion
+                return 0
             return 1
         if state == 'Match':
+            if h.base != g.base or h.base == '-' or g.base == '-':    # if it isn't match
+                return 0
             # [g.length - 1] - count from 0
             return self.__emissionMatchProbabilities[h.base][h.length][g.length - 1]
         if state == 'Insertion':
+            if h.base != '-' or g.base == '-':
+                return 0
             # [g.length - 1] - count from 0
             return (self.__emissionInsertionBaseProbabilities[self.bases.index(g.base)] *
                    self.__emissionInsertionLengthProbabilities[g.base][g.length - 1])
@@ -117,6 +123,8 @@ class HmmRecord:
         if len(args) == 2:
             # args = current state, next state. Want to know probability of transition
             current_state, next_state = args
+            # transitions probabilities is dictionary
+            # print 'curr: ', current_state, "next: ", next_state
             return self.__transition_probabilities[current_state][self.states.index(next_state)]
 
 class HmmModel:
@@ -164,7 +172,7 @@ class HmmModel:
         for lines in open('/home/andina/PycharmProjects/BioInf/Diploma/HMM_test.txt'):
             information = re.split('\t', lines.rstrip('\n'))
             if information[0] == '-:':
-                base_call_probabilities = [float(information[i]) for i in range(1, len(information))]
+                base_call = {'-': [float(information[i]) for i in range(1, len(information))]}
             elif information[0] == 'Begin':
                  transition_probabilities['Begin'] = [float(information[i]) for i in range(1, len(information))]
             elif information[0] == 'Match':
@@ -173,13 +181,14 @@ class HmmModel:
                 transition_probabilities['Insertion'] = [float(information[i]) for i in range(1, len(information))]
             elif information[0] == 'Deletion':
                 transition_probabilities['Deletion'] = [float(information[i]) for i in range(1, len(information))]
-        base_call = {'-': base_call_probabilities}
+            elif information[0] == 'End':
+                transition_probabilities['End'] = [float(information[i]) for i in range(1, len(information))]
         element = HmmRecord(base_call, length_call_test, length_call_insertion_test, transition_probabilities)
         self.HMM = [element]*size
         return 0
 
     def __init__(self, *args):
-        self.__modelLength = 20
+        self.__modelLength = 400
         self.states = ['Match', 'Deletion', 'Insertion', 'End']
         # self.initial_probabilities = []
         self.HMM = []
@@ -208,18 +217,6 @@ def create_sequence(model, max_size, reference):
 
     # count for number of insertions
     number_insertions = 0
-    """
-    if current_state == 'Match':
-        current_HP = model.HMM[0].emission(reference[0], 'Match')
-        current_reference_number += 1
-    if current_state == 'Insertion':
-        current_HP = model.HMM[0].emission(reference[0], 'Insertion')
-        number_insertions += 1
-    if current_state == 'Deletion':
-        current_HP = homopolymer()
-        current_reference_number += 1
-    sequence.append(current_HP)
-    """
     while current_state_number != max_size:
         # get next state, while length of model allow us do it
         next_state = model.HMM[current_state_number].transition(current_state)

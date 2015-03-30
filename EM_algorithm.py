@@ -215,6 +215,7 @@ def count_backward(read_tmp, reference_tmp, model):
     ref_hmm_blocks = hmm_block(reference)     # information about HMM blocks
     backward = float("-inf")*numpy.ones(shape=[len(read), len(reference), 5, max(max_hp_read) + 1, max(max_hp_ref) + 1],
                                         dtype=float)
+    print "Size: ", backward.nbytes
     print "Shape: ", backward.shape
     backward_position = float("-inf")*numpy.ones(shape=[len(read), len(reference), 5], dtype=float)
 
@@ -297,6 +298,122 @@ def count_backward(read_tmp, reference_tmp, model):
             check = log_sum(check, iter_slog(backward_position[i][j]))
     print check
     return backward
+
+
+def count_missing_variables(model, read_tmp, reference_tmp, transition_matrix):
+    """
+    Count gamma and xi for given read and reference. Variables counts with usage of forward-backward algorithm.
+    And update information about transition matrix
+    :param model: current HMM
+    :param read_tmp: given read
+    :param reference_tmp: given reference
+    :return: gamma and xi
+    """
+    states = {0: 'Match', 1: 'Deletion', 2: 'Insertion', 3: 'Begin', 4: 'End'}
+    read = ' ' + read_tmp
+    reference = ' ' + reference_tmp
+
+    max_hp_read = [0]
+    max_hp_read.extend(process_sequence_end(read_tmp))    # information about the lengthest HP at each position
+    max_hp_read.append(0)
+    max_hp_ref = [0]
+    max_hp_ref.extend(process_sequence_end(reference_tmp))
+    max_hp_ref.append(0)
+    ref_hmm_blocks = hmm_block(reference)     # information about HMM blocks
+
+    forward, check_forward = count_forward(read_tmp, reference_tmp, model)
+    backward, check_backward = count_backward(read_tmp, reference_tmp, model)
+    #  check_forward and check_backward must be same
+    print "Difference: ", abs(check_forward - check_backward)
+    # shape of forward and backward must also be the same
+    print "Shape: ", forward.shape, backward.shape
+
+    # count first missing variable. Amazing :)
+    gamma = forward + backward
+    gamma -= check_forward
+    print "Shape of gamma: ", gamma.shape
+
+    # count second missing variable. Need to do it faster - by presenting operations as a vector operations
+    xi = float("-inf")*numpy.ones(shape=[len(read), len(reference), 5, 5, max(process_sequence_start(read)) + 1,
+                           max(process_sequence_start(reference)) + 1],
+                                        dtype=float)
+    for i in range(len(read)):  # read position
+        for j in range(len(reference)):     # reference position
+            for curr_state in states:   # current state
+                for k in range(max_hp_read[i] + 1):     # maximum length of HP, ending at i
+
+                    # impossible cases
+                    if (curr_state == 0 and k == 0) or (curr_state == 1 and k != 0) or (curr_state == 2 and k == 0):
+                        continue
+
+                    for l in range(max_hp_ref[j] + 1):     # maximum length of HP, ending at j
+
+                        if (curr_state == 0 and l == 0) or (curr_state == 1 and l == 0) or (curr_state == 2 and l != 0):
+                            continue
+
+                        for prev_state in states:   # previous state
+                            transition = eln(model.HMM[ref_hmm_blocks[j]].transition(states[prev_state],
+                                                                                     states[curr_state]))
+                            backward_curr = backward[i, j, k, l, curr_state]
+                            it = [log_product(forward[i - k, j - l, k_tmp, l_tmp, prev_state],
+                                         eln(model.HMM[ref_hmm_blocks[j - l]].emission(homopolymer(read[i - k], k_tmp),
+                                        homopolymer(reference[j - l], l_tmp), states[prev_state])))
+                                  for k_tmp in range(max_hp_read[i - k] + 1) for l_tmp in range(max_hp_ref[j - l] + 1)]
+                            it = iter_slog(it)
+
+                            xi[i, j, curr_state, prev_state, k, l] = iter_plog([transition, backward_curr, it])
+
+                            # UPDATE TRANSITION
+                            transition_matrix[prev_state, curr_state] = log_sum(transition_matrix[prev_state, curr_state], xi[i, j, curr_state, prev_state, k, l])
+    xi -= check_forward
+    return gamma, xi
+
+
+def update_parameters(training_set, base_model, max_hp_length):
+    states = {0: 'Match', 1: 'Deletion', 2: 'Insertion', 3: 'Begin', 4: 'End'}
+    transition_matrix = float("-inf")*numpy.ones(shape=[len(states), len(states)], dtype=float)
+    length_call = float("-inf")*numpy.ones(shape=[max_hp_length + 1, max_hp_length + 1], dtype=float)
+    # base_call =
+
+    for pair in training_set:   # process every pair of read, reference
+        read = pair[0]
+        reference = pair[1]
+        # function get transition_matrix by reference, yes?
+        gamma, xi = count_missing_variables(base_model, read, reference, transition_matrix)
+
+        # information about length of nucleotides
+        max_hp_read = [0]
+        max_hp_read.extend(process_sequence_end(read))    # information about the lengthest HP at each position
+        max_hp_ref = [0]
+        max_hp_ref.extend(process_sequence_end(reference))
+
+        # update matrix parameters
+        # first - update T
+        for i in range(len(read)):  # read position
+            for j in range(len(reference)):     # reference position
+                for k in range(max_hp_read[i]):     # maximum length of HP. All of unuseful will be -inf
+                    for l in range(max_hp_ref[j]):
+                        length_call[k, l] = iter_slog([length_call[k, l], gamma[i, j, k, l, :]])
+        gamma = xi = None
+
+
+def update_length_call_parameters(length_call_matrix, b, max_length_hp, p_k):
+    f_start = 0
+    f_end = max_length_hp + 1
+    f = numpy.arange(f_start, f_end, 0.01)
+    p_f_l = numpy.zeros(shape=[len(f), max_length_hp + 1], dtype=float)     # p(f | l)
+    p_k_f = numpy.zeros(shape=[max_length_hp + 1, len(f)], dtype=float)     # p(k | f)
+    z_f = numpy.zeros(shape=[len(f)], dtype=float)     # Coefficient of normalize Z = \sum_{k}p(f | k) * p(k)
+    p_f_k_l = numpy.zeros(shape=[len(f), max_length_hp + 1, max_length_hp + 1], dtype=float)     # p(f | k, l)
+
+    def count_p_f_l():
+
+
+    def first_stage():
+
+
+    def expectation_step():
+
 
 
 

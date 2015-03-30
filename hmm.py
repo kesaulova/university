@@ -12,8 +12,12 @@ iter_plog = addmath.iter_plog
 
 class homopolymer:
     def __init__(self, base='-', length=0):
-        self.base = base
-        self.length = length
+        if length == 0:
+            self.base = '-'
+            self.length = length
+        else:
+            self.base = base
+            self.length = length
 
 class ViterbiVariable:
     def __init__(self, probability=0, path=[]):

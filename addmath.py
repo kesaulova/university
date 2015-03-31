@@ -1,8 +1,6 @@
 from math import log, exp
 import math
-import itertools
 import numpy
-import re
 
 def discrete_distribution(probabilities):
     """
@@ -69,7 +67,11 @@ def log_product(loga, logb):
         return loga + logb
 
 def iter_slog(l):
-    #implement logarifm of number of elements
+    """
+    Compute log(\sum\lim{i}(x_i)), when we know log(x_i)
+    :param l: list with logarifms of elements
+    :return: logarifm of sum of elements
+    """
     it = iter(l)
     acc = next(it)
     for snd in it:
@@ -77,7 +79,11 @@ def iter_slog(l):
     return acc
 
 def iter_plog(l):
-    #implement logarifm of number of elements
+    """
+    Compute log(\product\lim{i}(x_i)), when we know log(x_i)
+    :param l:  list with logarifms of elements
+    :return: logarifm of sum of elements
+    """
     it = iter(l)
     acc = next(it)
     for snd in it:

@@ -1,9 +1,11 @@
 Base call:
 -:	0.1	0.3	0.4	0.2
 Transition probabilities:
-	Match	Deletion	Insertion	End	Begin
-Begin	0.2999	0.3	0.4	0.0001	0
-Match	0.9	0.02	0.078	0.002	0
-Deletion	0.9	0.009	0.09	0.001	0
-Insertion	0.9	0.055	0.044	0.001	0
+	Match	Deletion	Insertion	Begin	End
+Begin	0.2999	0.3	0.4	0	0.0001
+Match	0.9	0.02	0.078	0	0.002
+Deletion	0.9	0.009	0.09	0	0.001
+Insertion	0.9	0.055	0.044	0	0.001
+End	0	0	0	0	0	1
+
 

@@ -32,7 +32,7 @@ def eln(x):
     :return: ln(x), if x > 0
     """
     if x == 0:
-        return float('Nan')
+        return float('-Inf')
     else:
         if x > 0:
             return log(x)
@@ -40,7 +40,7 @@ def eln(x):
             print 'Logarithm from negative number!'
             exit(1)
 
-def logSum(loga, logb):
+def log_sum(loga, logb):
     """
     Compute log(x + y), base on log(x) and log(y)
     :param loga: log(x)
@@ -62,7 +62,7 @@ def log_product(loga, logb):
     :param logb: log(y)
     """
     if math.isnan(loga) or math.isnan(logb):
-        return float('NaN')
+        return float('-inf')
     #elif loga == 0 or logb == 0:
     #    return 0
     else:
@@ -73,7 +73,7 @@ def iter_slog(l):
     it = iter(l)
     acc = next(it)
     for snd in it:
-        acc = logSum(acc, snd)
+        acc = log_sum(acc, snd)
     return acc
 
 def iter_plog(l):

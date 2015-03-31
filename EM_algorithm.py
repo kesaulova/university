@@ -1,6 +1,7 @@
 import hmm
 import numpy
 import addmath
+import math
 
 eln = addmath.eln
 exp = addmath.eexp
@@ -397,7 +398,7 @@ def update_parameters(training_set, base_model, max_hp_length):
         gamma = xi = None
 
 
-def update_length_call_parameters(length_call_matrix, b, max_length_hp, p_k):
+def update_length_call_parameters(length_call_matrix, b, max_length_hp, p_k, sigma):
     f_start = 0
     f_end = max_length_hp + 1
     f = numpy.arange(f_start, f_end, 0.01)
@@ -405,8 +406,95 @@ def update_length_call_parameters(length_call_matrix, b, max_length_hp, p_k):
     p_k_f = numpy.zeros(shape=[max_length_hp + 1, len(f)], dtype=float)     # p(k | f)
     z_f = numpy.zeros(shape=[len(f)], dtype=float)     # Coefficient of normalize Z = \sum_{k}p(f | k) * p(k)
     p_f_k_l = numpy.zeros(shape=[len(f), max_length_hp + 1, max_length_hp + 1], dtype=float)     # p(f | k, l)
+    p_f_zero = [0]*len(f)   # p(f | 0)
+    new_b = [0] * (max_length_hp + 1)
 
-    def count_p_f_l():
+    def count_p_f_l(b):
+        """
+        Count p(f|l) - Laplace distribution, probability of flow intensity f, when input HP have length l
+        :param b: parameter of scale
+        :return: 0
+        """
+        for ff in range(len(f)):
+            for l in range(1, max_length_hp + 1):   # l = 0 count by log-normal distribution
+                const = 1 / (2 * b[l])
+                p_f_l[ff, l] = const * exp((-2)*abs(ff - l)*const)
+        return 0
+
+    def count_z_f():
+        """
+        for each f count Z = \sum_{k}p(f | k) * p(k)
+        """
+        for i in xrange(len(f)):
+            z_f[i] = sum([p_f_l[i, k]*p_k[k] for k in range(1, max_length_hp + 1)])
+        return 0
+
+    def count_p_k_f():
+        """
+        Count p(k|f) - probability of observing HP length k from flow intensity f
+        p(k|f) = p(f|k)*p(k)/Z
+        """
+        for k in range(1, max_length_hp + 1):
+            for ff in range(len(f)):
+                p_k_f[k, ff] = p_f_l[ff, k] * p_k[k] / z_f[ff]
+        return 0
+
+    def count_p_f_zero():
+        const = 1 / (sigma * math.sqrt(2 * math.pi))
+        for ff in range(len(f)):
+            p_f_zero = exp((-1)*(eln(f[ff])**2*const / sigma)) * const / f[ff]
+        return 0
+
+    def expectation_step():
+        """
+        fill p_f_k_l (See supplementary)
+        """
+        for k in range(1, max_length_hp + 1):
+            for l in range(1, max_length_hp + 1):
+                temp = [p_k_f[k, f_tmp]*p_f_l[f_tmp, l] for f_tmp in f]     # p(k|f)*p(f|l)
+                normalize = sum(temp)
+                temp = [temp[i]/normalize for i in range(len(temp))]
+                for ff in range(len(f)):
+                    p_f_k_l[f[ff], k, l] = temp[ff]
+        return 0
+
+    count_p_f_l(b)
+    count_z_f()
+    count_p_k_f()
+    expectation_step()
+    count_p_f_zero()
+
+    # count b for l > 0
+    for l in range(1, max_length_hp + 1):
+        numerator = 0.0
+        denominator = 0.0
+        for ff in xrange(f):
+            for k in range(1, max_length_hp + 1):
+                temp = p_f_k_l[ff, k, l]*length_call_matrix[k, l]
+                numerator += temp * abs(ff - l)
+                denominator += temp
+        new_b[l] = numerator / denominator
+
+    # count sigma
+
+    for k in range(1, max_length_hp + 1):
+        numerator = 0.0
+        denominator = 0.0
+        for ff in xrange(len(f)):
+            temp = p_f_zero[ff, k]*length_call_matrix[k, 0]
+            numerator += temp * (eln(f[ff]))**2
+            denominator += temp
+
+
+
+
+
+
+
+
+
+
+
 
 
     def first_stage():

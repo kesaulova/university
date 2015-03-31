@@ -6,13 +6,17 @@ discrete_distribution = addmath.discrete_distribution
 homopolymer = hmm.homopolymer
 HmmModel = hmm.HmmModel
 create_sequence = hmm.create_sequence
-
 alphabet = {'A', 'C', 'G', 'T'}
 extendedAlphabet = {'A', 'C', 'G', 'T', '-'}
 
 
 
 def test_reference(length):
+    """
+    Create sequence (with givenlength) of homopolymers
+    :param length: desired length of sequence
+    :return:
+    """
     ref = [homopolymer('A', 3)]
     bases = ['A', 'C', 'G', 'T']
     for i in range(length):
@@ -22,31 +26,6 @@ def test_reference(length):
         length = discrete_distribution([10., 5., 1., 0.5, 10**(-2), 10**(-3), 10**(-4), 10**(-5), 10**(-6), 10**(-7), 10**(-8), 10**(-9), 10**(-10), 10**(-11)]) + 1
         ref.append(homopolymer(base, length))
     return ref
-
-
-def test_viterbi_initialize(read, reference, model):
-    viterbi_probability, viterbi_backtracking = Viterbi.viterbi_path(hmm.homopolymer_to_nucleotide(read), reference, model)
-    print viterbi_probability[0][2][0][1]
-    print viterbi_probability[0][1][0][1]
-    print viterbi_probability[0][0][0][1]
-
-    print viterbi_backtracking[0][2][0][1]
-    print viterbi_backtracking[0][1][0][1]
-    print viterbi_backtracking[0][0][0][1]
-
-    print viterbi_probability[0][0][1][2]
-    print viterbi_probability[1][0][1][2]
-    print viterbi_probability[2][0][1][2]
-
-    print viterbi_backtracking[0][0][1][2]
-    print viterbi_backtracking[1][0][1][2]
-    print viterbi_backtracking[2][0][1][2]
-
-    print viterbi_probability[0][0][1][0]
-    print viterbi_probability[1][0][1][1]
-    print viterbi_probability[0][1][0][0]
-    print viterbi_probability[0][1][0][2]
-    return 0
 
 
 def main():
@@ -65,9 +44,10 @@ def main():
     print '\n Read:',
     print hmm.homopolymer_to_nucleotide(sequence)
 
-    test_viterbi_initialize(sequence, reference_test, hmm_test)
-    viterbi_probability, viterbi_backtracking = Viterbi.viterbi_path(hmm.homopolymer_to_nucleotide(sequence), reference_test, hmm_test)
-    print Viterbi.parse_viterbi(viterbi_probability, viterbi_backtracking, len(reference_test), hmm.homopolymer_to_nucleotide(sequence))
+    viterbi_probability, viterbi_backtracking = Viterbi.viterbi_path(hmm.homopolymer_to_nucleotide(sequence),
+                                                                     reference_test, hmm_test)
+    print Viterbi.parse_viterbi(viterbi_probability, viterbi_backtracking, len(reference_test),
+                                hmm.homopolymer_to_nucleotide(sequence))
 
     return 0
 

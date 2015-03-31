@@ -1,8 +1,6 @@
-from math import log, exp
 import numpy
 import re
 import addmath
-import Viterbi
 
 discrete_distribution = addmath.discrete_distribution
 eln = addmath.eln
@@ -11,6 +9,10 @@ log_product = addmath.log_product
 iter_plog = addmath.iter_plog
 
 class homopolymer:
+    """
+    homopolymer = (base, length).
+    At example AAAA = ('A', 4)
+    """
     def __init__(self, base='-', length=0):
         if length == 0:
             self.base = '-'
@@ -19,13 +21,11 @@ class homopolymer:
             self.base = base
             self.length = length
 
-class ViterbiVariable:
-    def __init__(self, probability=0, path=[]):
-        # records in path seems like(hp_reference, hp_read, state)
-        self.probability = probability
-        path = path
 
 class HmmRecord:
+    """
+    Correspond to each block in model. Contain base call for insertion, length call, transition probabilities.
+    """
 
     def __init__(self, baseCall, lengthCall, lengthCallInsertion, transitionProbabilities):
         """
@@ -131,7 +131,14 @@ class HmmRecord:
             # print 'curr: ', current_state, "next: ", next_state
             return self.__transition_probabilities[current_state][self.states.index(next_state)]
 
+
 class HmmModel:
+    """
+    Realize HMM model. If there is no input in creation an instance, then creates model himself,
+    using data from HMM_test.txt.
+    Model contains from blocks, number of blocks have predefine size. Each block - HMM record.
+    ! Don't have method for fill Hmm Model in not-testing case
+    """
     @staticmethod
     def pseudo_length_call_match():
         """
@@ -167,7 +174,7 @@ class HmmModel:
     def fill_test_model(self, size):
         """
         Create test model, probabilities of all blocks are equal and extracts from file 'HMM_test.txt'
-        :param size:
+        :param size: number of blocks in model
         :return:
         """
         length_call_test = self.pseudo_length_call_match()
@@ -202,8 +209,8 @@ class HmmModel:
             self.fill_test_model(self.__modelLength)
             # later you have to add some code here...
 
+
 def create_sequence(model, max_size, reference):
-    # max_size == len(reference)? Nooooo.
     """
     Model sequence path with given reference
     :param model: HMM model
@@ -270,6 +277,7 @@ def nucleotide_to_homopolymer(sequence):
             length = 1
     result.append(homopolymer(base, length))
     return result
+
 
 def homopolymer_to_nucleotide(sequence):
     """

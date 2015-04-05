@@ -90,20 +90,19 @@ def count_forward(read_tmp, reference_tmp, model):
     :return: array of forward variables
     """
     # first create homopolymer sequence from reference
-    reference = [homopolymer()]
-    reference.extend(nucl_to_hp(reference_tmp))
+    reference = [homopolymer()] + nucl_to_hp(reference_tmp)
     read = ' ' + read_tmp
     states = {0: 'Match', 1: 'Deletion', 2: 'Insertion', 3: 'Begin', 4: 'End'}
     states_without_ins = {0: 'Match', 1: 'Deletion', 3: 'Begin', 4: 'End'}
     states_without_match = {1: 'Deletion', 2: 'Insertion', 3: 'Begin', 4: 'End'}
-    max_hp_read = [0]
-    max_hp_read.extend(len_max_hp_end(read))    # information about the lengthest HP at each position
-    max_hp_read.append(0)
+
+    max_hp_read = [0] + len_max_hp_end(read) + [0]
     len_hp_ref = len_max_hp_end(reference_tmp)   # information about the length of HP in reference
     forward = float("-inf")*numpy.ones(shape=[len(read), len(reference), len(states), max(max_hp_read) + 1,
-                                              len_hp_ref + 1], dtype=float)
+                                              max(len_hp_ref) + 1], dtype=float)
     print forward.shape
     forward_position = float("-inf")*numpy.ones(shape=[len(read), len(reference), 5], dtype=float)
+    print forward_position.shape
     forward_position[0][0][3] = 0
 
     def process_match(i, j, k, l, hp_input, hp_output):
@@ -201,11 +200,12 @@ def count_forward(read_tmp, reference_tmp, model):
                         process_match(i, j, k, l, reference[j], homopolymer(read[i], k))
 
             # fill F(i,j,pi)
-
             for state in states:
                 forward_position[i][j][state] = by_iter_slog(numpy.nditer(forward[i, j, state, :, :]))
-                print "---------------------------", i, j, states[state], forward_position[i][j][state]
-    check = by_iter_slog(numpy.nditer(forward_position[len(read_tmp), len(reference_tmp), :]))
+                #if not math.isnan(forward_position[i][j][state]):
+                #    print "---------------------------", i, j, states[state], forward_position[i][j][state]
+    print len(read_tmp), len(reference_tmp)
+    check = by_iter_slog(numpy.nditer(forward_position[len(read_tmp), len(reference) - 1, :]))
     print check
     return forward
 
@@ -224,12 +224,12 @@ def count_backward(read_tmp, reference_tmp, model):
     read = ' ' + read_tmp
     reference = [homopolymer()]
     reference.extend(nucl_to_hp(reference_tmp))
-    len_reference = len(reference_tmp)  # true length
+    len_ref = len(reference) - 1  # true length
     len_read = len(read_tmp)
-    print "Len_read: ", len_read, "len_reference: ", len_reference
+    print "Len_read: ", len_read, "len_reference: ", len_ref
     # position and create len_sequence to remember true length
     states = {0: 'Match', 1: 'Deletion', 2: 'Insertion', 3: 'Begin', 4: 'End'}
-
+    state_index = {'Match': 0, 'Deletion': 1, 'Insertion': 2, 'Begin': 3, 'End': 4}
     # information about the lengthest HP, starting from this position
     max_hp_read_s = [0] + len_max_hp_start(read_tmp)  # because read start from ' '
     max_hp_ref_s = [0] + len_max_hp_start(reference_tmp)  # because reference start from ' '
@@ -238,47 +238,26 @@ def count_backward(read_tmp, reference_tmp, model):
     max_hp_read_e = [0] + len_max_hp_end(read_tmp)  # because read start from ' '
     max_hp_ref_e = [0] + len_max_hp_end(reference_tmp)  # because reference start from ' '
 
-    backward = float("-inf")*numpy.ones(shape=[len(read), len(reference), 5, max(max_hp_read_e) + 1,
-                                               max(max_hp_ref_e) + 1], dtype=float)
+    backward = float("-inf")*numpy.ones(shape=[len_read + 1, len_ref + 1, max(max_hp_read_e) + 1,
+                                               max(max_hp_ref_e) + 1,  5], dtype=float)
     print "Size: ", backward.nbytes
     print "Shape: ", backward.shape
     # initialize
-    backward[len(read_tmp), len(reference_tmp), 0, 1, 1] = 0  # B(n, m, 0, 1, Deletion)
-    tmp = [0] * (length_last_hp(read) + 1)
-    backward[len(read_tmp), len(reference_tmp), 1: length_last_hp(read) + 1, 0, 2] = tmp  # B(n, m, k, 0, Insertion)
-    if reference[len_reference].base == read[len_read]:
-        backward[len(read_tmp), len(reference_tmp), 1: length_last_hp(read) + 1, 1, 0] = tmp  # B(n, m, k, 1, Match)
+    # B(n, m, 0, 1, Deletion)
+    backward[len_read, len_ref, 0, reference[len_ref].length, state_index['Deletion']] = 0
+    print len_read, len_ref, 'Deletion', backward[len_read, len_ref, 0, reference[len_ref].length, 1]
 
-    def iterative_sum(prev_state, i, j, d_i_max, d_j_max, read_base, reference_base):
-        """
-        Count backward variable
-        :param prev_state: state of backward variable
-        :param i: start of read suffix
-        :param j: start of reference suffix
-        :param d_i_max: maximum length of HP, starting at position i
-        :param d_j_max: maximum length of HP, starting at position j
-        :return:
-        """
-        result = float("-inf")
-        for state in [0, 1, 2]:
+    # B(n, m, k, 0, Insertion)
+    emiss = [eln(model.HMM[len_ref].emission(homopolymer(), homopolymer(read[len_read], t), 'Insertion'))
+             for t in range(1, length_last_hp(read) + 1)]
+    backward[len_read, len_ref, 1: length_last_hp(read) + 1, 0, state_index['Insertion']] = emiss
+    print len_read, len_ref, 'Insertion', emiss, len_read, len_ref, length_last_hp(read), 0, backward[len_read, len_ref, 1: length_last_hp(read) + 1, 0, state_index['Insertion']]
 
-            transition = eln(model.HMM[ref_hmm_blocks[j]].transition(states[prev_state], states[state]))
-            if transition == float("-inf"):
-                continue
-
-            for d_i in range(d_i_max + 1):
-
-                hp_output = homopolymer() if d_i == 0 else homopolymer(read_base, d_i)
-                for d_j in range(d_j_max + 1):
-
-                    hp_input = homopolymer() if d_j == 0 else homopolymer(reference_base, d_j)
-                    emission = eln(model.HMM[ref_hmm_blocks[j]].emission(hp_input, hp_output, states[state]))
-                    if emission == float("-inf"):
-                        continue
-                    #print hp_input.base, hp_output.base, states[state], emission
-                    result = log_sum(result,
-                                     iter_plog([transition, emission, backward[i + d_i][j + d_j][state][d_i][d_j]]))
-        return result
+    # B(n, m, k, 1, Match)
+    emiss = [eln(model.HMM[len_ref].emission(reference[len_ref], homopolymer(read[len_read], t), 'Match'))
+             for t in range(1, length_last_hp(read) + 1)]
+    backward[len_read, len_ref, 1: length_last_hp(read) + 1, reference[len_ref].length, state_index['Match']] = emiss
+    print len_read, len_ref, 'Match', emiss, len_read, len_ref, length_last_hp(read), reference[len_ref].length, backward[len_read, len_ref, 1: length_last_hp(read) + 1, reference[len_ref].length, state_index['Match']]
 
     def process_match(i, j):
         """
@@ -290,11 +269,16 @@ def count_backward(read_tmp, reference_tmp, model):
         hp_len = max_hp_read_s[i + 1]
         read_base = read[i + 1]
         hp_input = reference[j + 1]
-        emiss = [eln(model.HMM[j + 1].emission(hp_input, homopolymer(read_base, t), 'Match')) for t in range(1, hp_len)]
-        bck = [backward[i + t, j + 1, t, reference[j + 1].length, 0] for t in range(1, hp_len)]
+        st_index = state_index['Match']
+        emiss = [eln(model.HMM[j + 1].emission(hp_input, homopolymer(read_base, t), 'Match')) for t in range(1, hp_len + 1)]
+        bck = [backward[i + t, j + 1, t, reference[j + 1].length, st_index] for t in range(1, hp_len + 1)]
+        if i > len_read - 5 and j > len_ref - 5:
+            print "bck: ", [round(x, 3) for x in bck]
         result = [log_product(x, y) for x, y in zip(emiss, bck)]
-        result = by_iter_slog(iter(result))
-        return result
+        if len(result) == 1:
+            return result[0]
+        else:
+            return iter_slog(result)
 
     def process_deletion(i, j):
         """
@@ -303,7 +287,7 @@ def count_backward(read_tmp, reference_tmp, model):
         :param i: read position
         :param j: reference position
         """
-        return backward[i, j + 1, 0, reference[j + 1].length, 1]
+        return backward[i, j + 1, 0, reference[j + 1].length, state_index['Deletion']]
 
     def process_insertion(i, j):
         """
@@ -311,50 +295,67 @@ def count_backward(read_tmp, reference_tmp, model):
         :param i: read position
         :param j: reference position
         """
+        st_index = state_index['Insertion']
         hp_len = max_hp_read_s[i + 1]
         read_base = read[i + 1]
         hp_input = homopolymer()
-        emiss = [eln(model.HMM[j].emission(hp_input, homopolymer(read_base, t), 'Insertion')) for t in range(1, hp_len)]
-        bck = [backward[i + t, j, t, reference[j].length, 0] for t in range(1, hp_len)]
+        emiss = [eln(model.HMM[j].emission(hp_input, homopolymer(read_base, t), 'Insertion')) for t in range(1, hp_len + 1)]
+        bck = [backward[i + t, j, t, reference[j].length, st_index] for t in range(1, hp_len + 1)]
+        if i > len_read - 5 and j > len_ref - 5:
+            print "bck: ", [round(x, 3) for x in bck]
         result = [log_product(x, y) for x, y in zip(emiss, bck)]
-        result = by_iter_slog(iter(result))
-        return result
+        if len(result) == 1:
+            return result[0]
+        else:
+            return iter_slog(result)
 
-    for i in range(len_read, -1, -1):  # read position
+    for i in range(len_read - length_last_hp(read), -1, -1):  # read position
 
-        for j in range(len_reference, -1, -1):     # reference position
-            if j == len_reference and i == len_read:
+        for j in range(len_ref - 1, -1, -1):     # reference position
+            if j == len_ref and i == len_read:
                 continue
 
             # First count \sum\limits{i,j} p(beta_(i + di)|alpha_(j + dj), pi')*p(k|l, pi')*B(i + di, j + dj, k, pi').
             # It will be vector of length 3. Then, for each state, we create vector of transition probs,
             # element-wise multiply them and then get sum.
-            part_two = [0] * len(states)
+            part_two = [(-1)*numpy.inf] * len(states)
             if read[i + 1] == reference[j + 1].base:
                 part_two[0] = process_match(i, j)
             part_two[1] = process_deletion(i, j)
             part_two[2] = process_insertion(i, j)
 
             # Count B(i, j, k, l, Match)
-            trans_prob = [eln(model.HMM[j].transition('Match', states[k])), k in range(len(states))]
+            trans_prob = [eln(model.HMM[j].transition('Match', states[k])) for k in range(len(states))]
             if read[i] == read[i + 1]:
                 trans_prob[2] = float("-inf")
             value = [log_product(x, y) for x, y in zip(trans_prob, part_two)]
+            value = iter_slog(value)
+            if i > len_read - 5 and j > len_ref - 5:
+                print "part two: ", [round(x, 3) for x in part_two]
+                print "---------------------------", i, j, 'Match', "{0:.2f}".format(value), [round(x, 3) for x in trans_prob]
             for k in range(1, max_hp_read_e[i] + 1):
-                backward[i, j, k, max_hp_ref_e[j], 0] = value
+                backward[i, j, k, max_hp_ref_e[j], state_index['Match']] = value
 
             # Count B(i, j, k, l, Deletion)
-            trans_prob = [eln(model.HMM[j].transition('Deletion', states[k])), k in range(len(states))]
+            trans_prob = [eln(model.HMM[j].transition('Deletion', states[k])) for k in range(len(states))]
             value = [log_product(x, y) for x, y in zip(trans_prob, part_two)]
-            backward[i, j, 0, max_hp_ref_e[j], 1] = value
+            value = iter_slog(value)
+            if i > len_read - 5 and j > len_ref - 5:
+                print part_two
+                print "---------------------------", i, j, 'Deletion', "{0:.2f}".format(value), [round(x, 3) for x in trans_prob]
+            backward[i, j, 0, max_hp_ref_e[j], state_index['Deletion']] = value
 
             # Count B(i, j, k, l, Insertion)
-            trans_prob = [eln(model.HMM[j].transition('Insertion', states[k])), k in range(len(states))]
+            trans_prob = [eln(model.HMM[j].transition('Insertion', states[k])) for k in range(len(states))]
             if read[i] == read[i + 1]:
                 trans_prob[0] = float("-inf")
             value = [log_product(x, y) for x, y in zip(trans_prob, part_two)]
+            value = iter_slog(value)
+            if i > len_read - 5 and j > len_ref - 5:
+                print part_two
+                print "---------------------------", i, j, 'Insertion', "{0:.2f}".format(value), [round(x, 3) for x in trans_prob]
             for k in range(1, max_hp_read_e[i] + 1):
-                backward[i, j, k, 0, 2] = value
+                backward[i, j, k, 0, state_index['Insertion']] = value
 
     return backward
 
@@ -516,6 +517,7 @@ def update_length_call_parameters(length_call_matrix, b, max_length_hp, p_k, sig
                     p_f_k_l[f[ff], k, l] = temp[ff]
         return 0
 
+"""
     count_p_f_l(b)
     count_z_f()
     count_p_k_f()
@@ -542,33 +544,11 @@ def update_length_call_parameters(length_call_matrix, b, max_length_hp, p_k, sig
             temp = p_f_zero[ff, k]*length_call_matrix[k, 0]
             numerator += temp * (eln(f[ff]))**2
             denominator += temp
-
-
-
-
-
-
-
-
-
-
-
-
-
-    def first_stage():
-
-
-    def expectation_step():
-
-
-
+"""
 
 
 read = "TGCAACGGGCAATATGTCTCTGTGTGGATTAAAAAAGAGTGTCTGATAGCAGCTTCTGAACTGGTTACCTGCCGTGAGTAAATTAAAATTTTATTGACTTAGGTCACTAAATACTTTAACCAATATAGGCATAGCGACACAGACAGATAAAATTACAGAGTACACAACATCCATGAAACGACATTAGCACCACCATTACCACCACCATCACCATTACCACAGGTAACGGTGCGGGCTGACGCGTACAGGAAACACAGAAAAAAGCCCGCACCTGACAGTGCGGCTTTTTTTTTCGACCAAGGTAACGAGGTAACCAACCATGCGAGTGTTGAAGTTCGGCGGTACATCAGTGGCAAATGC"
 reference = "TGCAACGGGCAATATGTCTCTGTGTGGATTAAAAAAAGAGTGTCTGATAGCAGCTTCTGAACTGGTTACCTGCCGTGAGTAAATTAAAATTTTATTGACTTAGGTCACTAAATACTTTAACCAATATAGGCATAGCGCACAGACAGATAAAAATTACAGAGTACACAACATCCATGAAACGCATTAGCACCACCATTACCACCACCATCACCATTACCACAGGTAACGGTGCGGGCTGACGCGTACAGGAAACACAGAAAAAAGCCCGCACCTGACAGTGCGGGCTTTTTTTTTCGACCAAAGGTAACGAGGTAACAACCATGCGAGTGTTGAAGTTCGGCGGTACATCAGTGGCAAATGC"
-
-
-
 
 
 def main():

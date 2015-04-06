@@ -98,9 +98,9 @@ def count_forward(read_tmp, reference_tmp, model):
 
     max_hp_read = [0] + len_max_hp_end(read) + [0]
     len_hp_ref = len_max_hp_end(reference_tmp)   # information about the length of HP in reference
-    forward = float("-inf")*numpy.ones(shape=[len(read), len(reference), len(states), max(max_hp_read) + 1,
-                                              max(len_hp_ref) + 1], dtype=float)
-    print forward.shape
+    forward = float("-inf")*numpy.ones(shape=[len(read), len(reference), max(max_hp_read) + 1,
+                                              max(len_hp_ref) + 1, len(states)], dtype=float)
+    # print forward.shape
     forward_position = float("-inf")*numpy.ones(shape=[len(read), len(reference), 5], dtype=float)
     print forward_position.shape
     forward_position[0][0][3] = 0
@@ -126,11 +126,11 @@ def count_forward(read_tmp, reference_tmp, model):
         for prev_state in possible_prev_states:
             transition = eln(model.HMM[j - 1].transition(states[prev_state], 'Match'))
             emission = eln(model.HMM[j].emission(hp_input, hp_output, 'Match'))
-            result = log_sum(result, iter_plog([forward_position[i - k][j - 1][prev_state], transition, emission]))
+            result = log_sum(result, iter_plog([forward_position[i - k, j - 1, prev_state], transition, emission]))
             # print states[prev_state], read_pos, ref_pos, prev_state, k, l, forward[read_pos][ref_pos][prev_state][k][l]
-        forward[i][j][0][k][l] = result
-        # print "read: ", i, "len: ", k, "ref: ", j, "len: ", l, states[0], forward[i][j][0][k][l]
-        # print i, j, k, l, states[0], forward[i][j][0][k][l]
+        forward[i, j, k, l, 0] = result
+        # print "read: ", i, "len: ", k, "ref: ", j, "len: ", l, states[0], forward[i, j, k, l, 0]
+        # print i, j, k, l, states[0], forward[i, j, k, l, 0]
         return 0
 
     def process_insertion(i, j, k, l, hp_output):
@@ -153,9 +153,9 @@ def count_forward(read_tmp, reference_tmp, model):
             transition = eln(model.HMM[j].transition(states[prev_state], 'Insertion'))
             emission = eln(model.HMM[j].emission(homopolymer(), hp_output, 'Insertion'))
             result = log_sum(result, iter_plog([forward_position[i - k, j, prev_state], transition, emission]))
-        forward[i, j, 2, k, l] = result
-        # print "read: ", i, "len: ", k, "ref: ", j, "len: ", l, states[2], forward[i][j][2][k][l]
-        # print i, j, k, l, states[2], forward[i][j][2][k][l]
+        forward[i, j, k, l, 2] = result
+        # print "read: ", i, "len: ", k, "ref: ", j, "len: ", l, states[2], forward[i, j, k, l, 2]
+        # print i, j, k, l, states[2], forward[i, j, k, l, 2]
         return 0
 
     def process_deletion(i, j, k, l, hp_input):
@@ -172,11 +172,11 @@ def count_forward(read_tmp, reference_tmp, model):
         for prev_state in states:
             transition = eln(model.HMM[j - 1].transition(states[prev_state], 'Deletion'))
             emission = eln(model.HMM[j].emission(hp_input, homopolymer(), 'Deletion'))
-            result = log_sum(result, iter_plog([forward_position[i][j - 1][prev_state], transition, emission]))
+            result = log_sum(result, iter_plog([forward_position[i, j - 1, prev_state], transition, emission]))
             #print states[prev_state], read_pos, ref_pos, prev_state, k, l, forward_position[read_pos][ref_pos][prev_state]
-        forward[i, j, 1, k, l] = result
-        # print "read: ", i, "len: ", k, "ref: ", j, "len: ", l, states[1], forward[i][j][1][k][l]
-        # print i, j, k, l, states[1], forward[i][j][1][k][l]
+        forward[i, j, k, l, 1] = result
+        # print "read: ", i, "len: ", k, "ref: ", j, "len: ", l, states[1], forward[i, j, k, l, 1]
+        # print i, j, k, l, states[1], forward[i, j, k, l, 1]
         return 0
 
     # start from 0, because there can be insertions and deletions at the begining
@@ -201,7 +201,7 @@ def count_forward(read_tmp, reference_tmp, model):
 
             # fill F(i,j,pi)
             for state in states:
-                forward_position[i][j][state] = by_iter_slog(numpy.nditer(forward[i, j, state, :, :]))
+                forward_position[i][j][state] = by_iter_slog(numpy.nditer(forward[i, j, :, :, state]))
                 #if not math.isnan(forward_position[i][j][state]):
                 #    print "---------------------------", i, j, states[state], forward_position[i][j][state]
     print len(read_tmp), len(reference_tmp)
@@ -226,7 +226,7 @@ def count_backward(read_tmp, reference_tmp, model):
     reference.extend(nucl_to_hp(reference_tmp))
     len_ref = len(reference) - 1  # true length
     len_read = len(read_tmp)
-    print "Len_read: ", len_read, "len_reference: ", len_ref
+    # print "Len_read: ", len_read, "len_reference: ", len_ref
     # position and create len_sequence to remember true length
     states = {0: 'Match', 1: 'Deletion', 2: 'Insertion', 3: 'Begin', 4: 'End'}
     state_index = {'Match': 0, 'Deletion': 1, 'Insertion': 2, 'Begin': 3, 'End': 4}
@@ -238,8 +238,8 @@ def count_backward(read_tmp, reference_tmp, model):
 
     backward = float("-inf")*numpy.ones(shape=[len_read + 1, len_ref + 1, max(max_hp_read_e) + 1,
                                                max(max_hp_ref_e) + 1,  5], dtype=float)
-    print "Size: ", backward.nbytes
-    print "Shape: ", backward.shape
+    # print "Size: ", backward.nbytes
+    # print "Shape: ", backward.shape
 
     # initialize
     # B(i, m, 0, 1, Deletion)
@@ -248,7 +248,6 @@ def count_backward(read_tmp, reference_tmp, model):
     emiss = [eln(model.HMM[len_ref].emission(homopolymer(), homopolymer(read[len_read], t), 'Insertion'))
              for t in range(1, length_last_hp(read) + 1)]
     backward[len_read, len_ref, 1: length_last_hp(read) + 1, 0, state_index['Insertion']] = emiss
-    print 'Insertion', len_read, len_ref, length_last_hp(read), emiss
     # B(n, m, k, 1, Match)
     emiss = [eln(model.HMM[len_ref].emission(reference[len_ref], homopolymer(read[len_read], t), 'Match'))
              for t in range(1, length_last_hp(read) + 1)]
@@ -305,10 +304,8 @@ def count_backward(read_tmp, reference_tmp, model):
 
 
     for i in range(len_read, -1, -1):  # read position
-    # for i in range(len_read, len_read - 5, -1):  # read position
 
         for j in range(len_ref, -1, -1):     # reference position
-        # for j in range(len_ref, len_ref - 5, -1):     # reference position
             if j == len_ref and i == len_read:
                 continue
 
@@ -333,19 +330,17 @@ def count_backward(read_tmp, reference_tmp, model):
                     trans_prob[2] = float("-inf")
                 value_1 = [log_product(x, y) for x, y in zip(trans_prob, part_two)]
                 value = iter_slog(value_1)
-
-
             for k in range(1, max_hp_read_e[i] + 1):
                 backward[i, j, k, reference[j].length, state_index['Match']] = value
-            if i < 5 and j < 5:
-                print "---------------------------", i, j, 'Match', "{0:.2f}".format(value), [round(x, 3) for x in part_two], [round(x, 3) for x in [eln(model.HMM[j].transition('Match', states[k])) for k in range(len(states))]]
+            # if i < 5 and j < 5:
+            #     print "---------------------------", i, j, 'Match', "{0:.2f}".format(value), [round(x, 3) for x in part_two], [round(x, 3) for x in [eln(model.HMM[j].transition('Match', states[k])) for k in range(len(states))]]
 
             # Count B(i, j, k, l, Deletion)
             trans_prob = [eln(model.HMM[j].transition('Deletion', states[k])) for k in range(len(states))]
             value = [log_product(x, y) for x, y in zip(trans_prob, part_two)]
             value = iter_slog(value)
-            if i < 5 and j < 5:
-                print "---------------------------", i, j, 'Deletion', "{0:.2f}".format(value), [round(x, 3) for x in part_two], [round(x, 3) for x in trans_prob]
+            # if i < 5 and j < 5:
+            #     print "---------------------------", i, j, 'Deletion', "{0:.2f}".format(value), [round(x, 3) for x in part_two], [round(x, 3) for x in trans_prob]
             backward[i, j, 0,  reference[j].length, state_index['Deletion']] = value
 
             # Count B(i, j, k, l, Insertion)
@@ -354,8 +349,8 @@ def count_backward(read_tmp, reference_tmp, model):
                 trans_prob[0] = float("-inf")
             value = [log_product(x, y) for x, y in zip(trans_prob, part_two)]
             value = iter_slog(value)
-            if i < 5 and j < 5:
-                print "---------------------------", i, j, 'Insertion', "{0:.2f}".format(value), [round(x, 3) for x in part_two], [round(x, 3) for x in trans_prob]
+            # if i < 5 and j < 5:
+            #     print "---------------------------", i, j, 'Insertion', "{0:.2f}".format(value), [round(x, 3) for x in part_two], [round(x, 3) for x in trans_prob]
             for k in range(1, max_hp_read_e[i] + 1):
                 backward[i, j, k, 0, state_index['Insertion']] = value
     check = by_iter_slog(numpy.nditer(backward[0, 0, :, :, :]))
@@ -550,10 +545,6 @@ def update_length_call_parameters(length_call_matrix, b, max_length_hp, p_k, sig
 """
 
 
-read = "TGCAACGGGCAATATGTCTCTGTGTGGATTAAAAAAGAGTGTCTGATAGCAGCTTCTGAACTGGTTACCTGCCGTGAGTAAATTAAAATTTTATTGACTTAGGTCACTAAATACTTTAACCAATATAGGCATAGCGACACAGACAGATAAAATTACAGAGTACACAACATCCATGAAACGACATTAGCACCACCATTACCACCACCATCACCATTACCACAGGTAACGGTGCGGGCTGACGCGTACAGGAAACACAGAAAAAAGCCCGCACCTGACAGTGCGGCTTTTTTTTTCGACCAAGGTAACGAGGTAACCAACCATGCGAGTGTTGAAGTTCGGCGGTACATCAGTGGCAAATGC"
-reference = "TGCAACGGGCAATATGTCTCTGTGTGGATTAAAAAAAGAGTGTCTGATAGCAGCTTCTGAACTGGTTACCTGCCGTGAGTAAATTAAAATTTTATTGACTTAGGTCACTAAATACTTTAACCAATATAGGCATAGCGCACAGACAGATAAAAATTACAGAGTACACAACATCCATGAAACGCATTAGCACCACCATTACCACCACCATCACCATTACCACAGGTAACGGTGCGGGCTGACGCGTACAGGAAACACAGAAAAAAGCCCGCACCTGACAGTGCGGGCTTTTTTTTTCGACCAAAGGTAACGAGGTAACAACCATGCGAGTGTTGAAGTTCGGCGGTACATCAGTGGCAAATGC"
-
-
 def main():
     """
     Implement training of HMM.
@@ -562,9 +553,8 @@ def main():
     :return:
     """
     hmm_test = hmm.HmmModel()
-    read = "TGCAACGGGCAATATGTCTCTGTGTGGATTAAAAAAGAGTGTCTGATAGCAGCTTCTGAACTGGTTACCTGCCGTGAGTAAATTAAAATTTTATTGACTTAGGTCACTAAATACTTTAACCAATATAGGCATAGCGACACAGACAGATAAAATTACAGAGTACACAACATCCATGAAACGACATTAGCACCACCATTACCACCACCATCACCATTACCACAGGTAACGGTGCGGGCTGACGCGTACAGGAAACACAGAAAAAAGCCCGCACCTGACAGTGCGGCTTTTTTTTTCGACCAAGGTAACGAGGTAACCAACCATGCGAGTGTTGAAGTTCGGCGGTACATCAGTGGCAAATGC"
-    reference = "TGCAACGGGCAATATGTCTCTGTGTGGATTAAAAAAAGAGTGTCTGATAGCAGCTTCTGAACTGGTTACCTGCCGTGAGTAAATTAAAATTTTATTGACTTAGGTCACTAAATACTTTAACCAATATAGGCATAGCGCACAGACAGATAAAAATTACAGAGTACACAACATCCATGAAACGCATTAGCACCACCATTACCACCACCATCACCATTACCACAGGTAACGGTGCGGGCTGACGCGTACAGGAAACACAGAAAAAAGCCCGCACCTGACAGTGCGGGCTTTTTTTTTCGACCAAAGGTAACGAGGTAACAACCATGCGAGTGTTGAAGTTCGGCGGTACATCAGTGGCAAATGC"
-    print read[359:]
+    read = "GCGTTTGGCGTCGAACCCAATTCCCGCCTCATTGGAAAACATACTGCGCTGAAAACCGTTAGTAATCGCCTGGCTTAAGGTATATCCCGCCGCGCCGCCTGCCGCTTCCTGCCAGCCAAAAGCACTCTCAAAAATAGACCAAATGACGTGGGGAAGTTGCCCGATATTCATTACGCAAATTACCAGGCTGGTCAGTACCCAGATTATCGCCATCAACGGGACAAAGCCCTGCATGAGCCGGGCGACGCCATGAAGACCGCGAGTGATTGCCAGCAGAGTAAAGACAGCGAGAATAATGCCTGTCACCAGCGGGGGAAAATCAAAAGAAAAACTCAGGGCGCGGGCAACGGCGTTCGCTTGAACTCCGCTGAAAATTATGCCATAGGCGATGAGCAAAAA"
+    reference = "GCGTTTGGCGTCGAACCCATTCCCGCCTCATTGGAAAACATACTGCGCTGAAAACCGTTAGTAATCGCCTGGCTTAAGGTATATCCCGCCGCGCCGCCTGCCGCTTCCTGCCAGCCAAAAGCACTCTCAAAAATAGACCAAATGACGTGGGGAAGTTGCCCGATATTCATTACGCAAATTACCAGGCTGGTCAGTACCCAGATTATCGCCATCAACGGGACAAAGCCCTGCATGAGCCGGGCGACGCCATGAATGCCAGCAGAGTAAAGACAGCGAGAATAATGCCTGTCACCAGCGGGGGAAAATCAAAAGAAAAACTCAGGGCGCGGGCAACGGCGTTCGCTTGAACTCCGCTGAAAATTATGCCATAGGCGATGAGCAAAAA"
     count_forward(read, reference, hmm_test)
     count_backward(read, reference, hmm_test)
 

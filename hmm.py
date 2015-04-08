@@ -7,6 +7,7 @@ eln = addmath.eln
 exp = addmath.eexp
 log_product = addmath.log_product
 iter_plog = addmath.iter_plog
+eexp = addmath.eexp
 
 class homopolymer:
     """
@@ -24,31 +25,65 @@ class homopolymer:
 
 class HmmRecord:
     """
-    Correspond to each block in model. Contain base call for insertion, length call, transition probabilities.
-    """
+    Correspond to each block in model. Contains:
+     1) base call for insertion
+     2) length call for Match
+     3) length call for insertion
+     4) transition probabilities.
+     In case null-block, block contain only transition probabilities = initial probabilities, but other parameters
+     have no sense.
+     All probabilities is log-probabilities
 
-    def __init__(self, baseCall, lengthCall, lengthCallInsertion, transitionProbabilities):
+     !!! Here length call doesn't depend from base!
+    """
+    @staticmethod
+    def get_eln(item):
+        """
+        Take a log from every element in array
+        :param item: array (one or more dimensional)
+        :return: ndarray with same shape, with log-elements
+        """
+        print type(item)
+        nd_item = numpy.array(item).copy()
+        for x in numpy.nditer(nd_item, op_flags=['readwrite']):
+            x[...] = eln(x)
+        return nd_item
+
+    @staticmethod
+    def get_eexp(item):
+        """
+        Take a eexp from every element in array
+        :return: ndarray with same shape, with exp-elements
+        """
+        nd_item = numpy.array(item).copy()
+        for x in numpy.nditer(nd_item, op_flags=['readwrite']):
+            x[...] = eexp(x)
+        return nd_item
+
+    def __init__(self, base_call, length_call, length_call_insert, transition_probabilities):
         """
         Constructor
-        :param baseCallVectors: dictionary, three key: Deletion (value - probability of remove reference base),
+        :param base_call: dictionary, three key: Deletion (value - probability of remove reference base),
         Insertion(value - probability of insert read base), Match (value - 1?)
-        :param lengthCallInsertion: dictionaty, key - bases, values - length of gomopolymers of such bases when
+        :param length_call_insert: dictionary, key - bases, values - length of gomopolymers of such bases when
         insertions occur
-        :param transitionProbabilities: dictionary with trans.prob. for every state
+        :param length_call: matrix with size max_hp_size * max_hp_size
+        :param transition_probabilities: dictionary with trans.prob. for every state
         :return:
         """
         self.bases = ['A', 'C', 'G', 'T']
         self.states = ['Match', 'Deletion', 'Insertion', 'Begin', 'End']
-        self.__emissionInsertionBaseProbabilities = baseCall['-']
-        self.__emissionInsertionLengthProbabilities = {'A': lengthCallInsertion['A'], 'C': lengthCallInsertion['C'],
-                                                       'G': lengthCallInsertion['G'], 'T': lengthCallInsertion['T']}
-        # lengthCall['base']: matrix, row - input length, column - output
-        self.__emissionMatchProbabilities = {'A': lengthCall['A'], 'C': lengthCall['C'], 'G': lengthCall['G'],
-                                             'T': lengthCall['T']}
-        # if transProb = {'base': [probabilities M, I, D]
-        self.__transition_probabilities = transitionProbabilities
 
-    def __emissionNotViterbi(self, h, state):
+        self.__insert_base_call = self.get_eln(base_call)
+        self.__length_call_insert = self.get_eln(length_call_insert)
+        self.__length_call_match = self.get_eln(length_call)
+        self.__transition_probabilities = self.get_eln(transition_probabilities)
+        # self__length_call_match = {'A': length_call['A'], 'C': length_call['C'], 'G': length_call['G'],
+        #                                     'T': length_call['T']}
+        # self.__length_call_insert = {'A': eln(length_call_insert['A']), 'C': eln(length_call_insert['C']),
+        #                                         'G': eln(length_call_insert['G']), 'T': eln(length_call_insert['T'])}
+
+    def __emiss_not_viterbi(self, h, state):
         """
         :param h: input homopolymer
         :param state: current state
@@ -59,23 +94,28 @@ class HmmRecord:
         if state == 'Begin':
             return homopolymer()
         if state == 'Match':
-            #[h.length + 1] - count from 0
-            bins = numpy.cumsum(self.__emissionMatchProbabilities[h.base][h.length - 1])
+            # [h.length + 1] - count from 0
+            # bins = numpy.cumsum(self__length_call_match[h.base][h.length - 1])
+            tmp = self.get_eexp(self.__length_call_match[h.length - 1])
+            bins = numpy.cumsum(tmp)
             length = 0
             while length == 0:
                 length = numpy.digitize(numpy.random.random_sample(1), bins)[0]
             return homopolymer(h.base, length)
         if state == 'Insertion':
-            bins = numpy.cumsum(self.__emissionInsertionBaseProbabilities)
+            tmp = self.get_eexp(self.__insert_base_call)
+            bins = numpy.cumsum(tmp)
             base = self.bases[numpy.digitize(numpy.random.random_sample(1), bins)]
             length = 0
             while length == 0:
-                bins = numpy.cumsum(self.__emissionInsertionLengthProbabilities[base])
+                # bins = numpy.cumsum(self.__length_call_insert[base])
+                tmp = self.get_eexp(tmp)
+                bins = numpy.cumsum(self.__length_call_insert[self.bases.index(base)])
                 # '+ 1' - we count from 0
                 length = numpy.digitize(numpy.random.random_sample(1), bins)[0] + 1
             return homopolymer(base, length)
 
-    def __emissionViterbi(self, h, g, state):
+    def __emiss_viterbi(self, h, g, state):
         """
         :param h: input homopolymer
         :param g: output homopolymer
@@ -91,13 +131,16 @@ class HmmRecord:
             if h.base != g.base or h.base == '-' or g.base == '-':    # if it isn't match
                 return 0
             # [g.length - 1] - count from 0
-            return self.__emissionMatchProbabilities[h.base][h.length][g.length - 1]
+            # return self__length_call_match[h.base][h.length][g.length - 1]
+            return self.__length_call_match[h.length][g.length - 1]
         if state == 'Insertion':
             if h.base != '-' or g.base == '-':
                 return 0
             # [g.length - 1] - count from 0
-            return (self.__emissionInsertionBaseProbabilities[self.bases.index(g.base)] *
-                   self.__emissionInsertionLengthProbabilities[g.base][g.length - 1])
+            # return (self.__insert_base_call[self.bases.index(g.base)] *
+            #      self.__length_call_insert[g.base][g.length - 1])
+            return log_product(self.__insert_base_call[self.bases.index(g.base)],
+                  self.__length_call_insert[g.length - 1])
 
     def emission(self, *args):
         """
@@ -108,10 +151,10 @@ class HmmRecord:
         """
         if len(args) == 2:
             # args = g, state. Need to know homopolymer output
-            return self.__emissionNotViterbi(*args)
+            return self.__emiss_not_viterbi(*args)
         if len(args) == 3:
             # args = g, h, state. Want to know probability
-            return self.__emissionViterbi(*args)
+            return self.__emiss_viterbi(*args)
 
     def transition(self, *args):
         """
@@ -123,13 +166,16 @@ class HmmRecord:
         if len(args) == 1:
             current_state = args[0]
             # args = state. Want to get next state
-            return self.states[discrete_distribution(self.__transition_probabilities[current_state])]
-        if len(args) == 2:
+            return self.states[discrete_distribution(self.get_eexp(self.__transition_probabilities[self.states.index(current_state)]))]
+        elif len(args) == 2:
             # args = current state, next state. Want to know probability of transition
             current_state, next_state = args
             # transitions probabilities is dictionary
             # print 'curr: ', current_state, "next: ", next_state
             return self.__transition_probabilities[current_state][self.states.index(next_state)]
+        else:
+            print "Error with length of arguments if transition, length = ", len(args)
+            exit(1)
 
 
 class HmmModel:
@@ -156,19 +202,20 @@ class HmmModel:
                 row[j] = residue[j - i - 1]
             rowFinal = [row[i]/sum(row) for i in range(15)]
             length_call_matrix.append(rowFinal)
-        length_call = {'A': length_call_matrix, 'C': length_call_matrix, 'G': length_call_matrix,
-                       'T': length_call_matrix}
-        return length_call
+        #  length_call = {'A': length_call_matrix, 'C': length_call_matrix, 'G': length_call_matrix,
+        #                'T': length_call_matrix}
+        return length_call_matrix
 
     @staticmethod
-    def pseudo_length_call_insertion():
+    def pseudo_length_call_insert():
         """
         :return: vector of probabilities of length call in case insertion
         """
         calls = range(15, 1, -1)
         insertion_calls_probabilities = [calls[i]/float(sum(calls)) for i in range(14)]
-        insertion_calls = {'A': insertion_calls_probabilities, 'C': insertion_calls_probabilities,
-                           'G': insertion_calls_probabilities, 'T': insertion_calls_probabilities}
+        # insertion_calls = {'A': insertion_calls_probabilities, 'C': insertion_calls_probabilities,
+        #                  'G': insertion_calls_probabilities, 'T': insertion_calls_probabilities}
+        insertion_calls = insertion_calls_probabilities
         return insertion_calls
 
     def fill_test_model(self, size):
@@ -178,29 +225,29 @@ class HmmModel:
         :return:
         """
         length_call_test = self.pseudo_length_call_match()
-        length_call_insertion_test = self.pseudo_length_call_insertion()
-        transition_probabilities = {}
+        length_call_insert_test = self.pseudo_length_call_insert()
+        transition_probabilities = numpy.zeros(shape=[len(self.states), len(self.states)], dtype=float)
         for lines in open('/home/andina/PycharmProjects/BioInf/Diploma/HMM_test.txt'):
             information = re.split('\t', lines.rstrip('\n'))
             if information[0] == '-:':
-                base_call = {'-': [float(information[i]) for i in range(1, len(information))]}
+                base_call = [float(information[i]) for i in range(1, len(information))]
             elif information[0] == 'Begin':
-                 transition_probabilities['Begin'] = [float(information[i]) for i in range(1, len(information))]
+                 transition_probabilities[self.states.index('Begin')] = [float(information[i]) for i in range(1, len(information))]
             elif information[0] == 'Match':
-                transition_probabilities['Match'] = [float(information[i]) for i in range(1, len(information))]
+                transition_probabilities[self.states.index('Match')] = [float(information[i]) for i in range(1, len(information))]
             elif information[0] == 'Insertion':
-                transition_probabilities['Insertion'] = [float(information[i]) for i in range(1, len(information))]
+                transition_probabilities[self.states.index('Insertion')] = [float(information[i]) for i in range(1, len(information))]
             elif information[0] == 'Deletion':
-                transition_probabilities['Deletion'] = [float(information[i]) for i in range(1, len(information))]
+                transition_probabilities[self.states.index('Deletion')] = [float(information[i]) for i in range(1, len(information))]
             elif information[0] == 'End':
-                transition_probabilities['End'] = [float(information[i]) for i in range(1, len(information))]
-        element = HmmRecord(base_call, length_call_test, length_call_insertion_test, transition_probabilities)
+                transition_probabilities[self.states.index('End')] = [float(information[i]) for i in range(1, len(information))]
+        element = HmmRecord(base_call, length_call_test, length_call_insert_test, transition_probabilities)
         self.HMM = [element]*size
         return 0
 
     def __init__(self, *args):
         self.__modelLength = 400
-        self.states = ['Match', 'Deletion', 'Insertion', 'End']
+        self.states = ['Match', 'Deletion', 'Insertion', 'Begin', 'End']
         # self.initial_probabilities = []
         self.HMM = []
         if len(args) == 0:
@@ -236,22 +283,22 @@ def create_sequence(model, max_size, reference):
                 print 'WTF TOO MANY INSERTIONS'
                 next_state = model.HMM[current_state_number].transition(current_state)
         if next_state == 'Match':
-            current_HP = model.HMM[current_state_number].emission(reference[current_reference_number], 'Match')
+            current_hp = model.HMM[current_state_number].emission(reference[current_reference_number], 'Match')
             current_reference_number += 1
             current_state_number += 1
             number_insertions = 0
         elif next_state == 'Insertion':
-            current_HP = model.HMM[current_state_number].emission(reference[current_reference_number], 'Insertion')
+            current_hp = model.HMM[current_state_number].emission(reference[current_reference_number], 'Insertion')
             number_insertions += 1
         elif next_state == 'Deletion':
-            current_HP = homopolymer()
+            current_hp = homopolymer()
             current_reference_number += 1
             current_state_number += 1
             number_insertions = 0
         else:
             print 'hmm.py, 242 line, error!'
             exit(1)
-        sequence.append(current_HP)
+        sequence.append(current_hp)
         state_path.append([current_state_number, next_state])
         if next_state == 'End' or current_reference_number == len(reference):
             break

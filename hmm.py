@@ -43,7 +43,6 @@ class HmmRecord:
         :param item: array (one or more dimensional)
         :return: ndarray with same shape, with log-elements
         """
-        print type(item)
         nd_item = numpy.array(item).copy()
         for x in numpy.nditer(nd_item, op_flags=['readwrite']):
             x[...] = eln(x)
@@ -132,7 +131,7 @@ class HmmRecord:
                 return 0
             # [g.length - 1] - count from 0
             # return self__length_call_match[h.base][h.length][g.length - 1]
-            return self.__length_call_match[h.length][g.length - 1]
+            return self.__length_call_match[h.length - 1][g.length - 1]
         if state == 'Insertion':
             if h.base != '-' or g.base == '-':
                 return 0
@@ -172,7 +171,7 @@ class HmmRecord:
             current_state, next_state = args
             # transitions probabilities is dictionary
             # print 'curr: ', current_state, "next: ", next_state
-            return self.__transition_probabilities[current_state][self.states.index(next_state)]
+            return self.__transition_probabilities[self.states.index(current_state)][self.states.index(next_state)]
         else:
             print "Error with length of arguments if transition, length = ", len(args)
             exit(1)
@@ -227,12 +226,12 @@ class HmmModel:
         length_call_test = self.pseudo_length_call_match()
         length_call_insert_test = self.pseudo_length_call_insert()
         transition_probabilities = numpy.zeros(shape=[len(self.states), len(self.states)], dtype=float)
-        for lines in open('/home/andina/PycharmProjects/BioInf/Diploma/HMM_test.txt'):
+        for lines in open('./HMM_test.txt'):
             information = re.split('\t', lines.rstrip('\n'))
             if information[0] == '-:':
                 base_call = [float(information[i]) for i in range(1, len(information))]
             elif information[0] == 'Begin':
-                 transition_probabilities[self.states.index('Begin')] = [float(information[i]) for i in range(1, len(information))]
+                transition_probabilities[self.states.index('Begin')] = [float(information[i]) for i in range(1, len(information))]
             elif information[0] == 'Match':
                 transition_probabilities[self.states.index('Match')] = [float(information[i]) for i in range(1, len(information))]
             elif information[0] == 'Insertion':
@@ -248,13 +247,23 @@ class HmmModel:
     def __init__(self, *args):
         self.__modelLength = 400
         self.states = ['Match', 'Deletion', 'Insertion', 'Begin', 'End']
-        # self.initial_probabilities = []
         self.HMM = []
         if len(args) == 0:
             # create test model
             print 'Create test model'
             self.fill_test_model(self.__modelLength)
-            # later you have to add some code here...
+        else:
+            assert (len(args) == 4), "Length of arguments for HMM model doesn't equal 4!"
+            base_call, len_call_match, len_call_ins, trans_prob = args
+            if isinstance(trans_prob, list):
+                self.HMM = []
+                for i in range(len(trans_prob)):
+                    element = HmmRecord(base_call[i], len_call_match[i], len_call_ins[i], trans_prob[i])
+                    self.HMM.append(element)
+            else:
+                element = HmmRecord(base_call, len_call_match, len_call_ins, trans_prob)
+                self.HMM = [element]*400
+
 
 
 def create_sequence(model, max_size, reference):

@@ -23,6 +23,7 @@ def eexp(x):
     else:
         return exp(x)
 
+
 def eln(x):
     """
     Extended logarithm
@@ -38,14 +39,15 @@ def eln(x):
             print 'Logarithm from negative number!'
             exit(1)
 
+
 def log_sum(loga, logb):
     """
     Compute log(x + y), base on log(x) and log(y)
     :param loga: log(x)
     :param logb: log(y)
     """
-    if math.isnan(loga) or math.isnan(logb):
-        if math.isnan(loga):
+    if numpy.isinf(loga) or numpy.isinf(logb):
+        if numpy.isinf(loga):
             return logb
         else:
             return loga
@@ -53,18 +55,18 @@ def log_sum(loga, logb):
         loga, logb = logb, loga
     return loga + log(1 + exp(logb - loga))
 
+
 def log_product(loga, logb):
     """
     Compute log(x * y), base on log(x) and log(y)
     :param loga: log(x)
     :param logb: log(y)
     """
-    if math.isnan(loga) or math.isnan(logb):
-        return float('-inf')
-    #elif loga == 0 or logb == 0:
-    #    return 0
-    else:
-        return loga + logb
+    #if numpy.isinf(loga) or numpy.isinf(logb):
+    #    return float('-inf')
+    #else:
+    #    return loga + logb
+    return loga + logb
 
 def iter_slog(l):
     """
@@ -78,6 +80,7 @@ def iter_slog(l):
         acc = log_sum(acc, snd)
     return acc
 
+
 def iter_plog(l):
     """
     Compute log(\product\lim{i}(x_i)), when we know log(x_i)
@@ -88,4 +91,16 @@ def iter_plog(l):
     acc = next(it)
     for snd in it:
         acc = log_product(acc, snd)
+    return acc
+
+
+def by_iter_slog(it):
+    """
+    Compute log(\sum\lim{i}(x_i)), when we know log(x_i)
+    :param it: iter by some structure
+    :return: logarifm of sum of elements
+    """
+    acc = next(it)
+    for snd in it:
+        acc = log_sum(acc, snd)
     return acc

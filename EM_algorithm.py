@@ -5,6 +5,7 @@ import math
 from scipy.stats import laplace, lognorm
 from scipy.integrate import quad
 import re
+from inspect import currentframe, getframeinfo
 
 eln = addmath.eln
 eexp = addmath.eexp
@@ -248,12 +249,12 @@ def count_forward(read_tmp, reference_tmp, model):
     states_without_ins = {0: 'Match', 1: 'Deletion', 3: 'Begin', 4: 'End'}
     states_without_match = {1: 'Deletion', 2: 'Insertion', 3: 'Begin', 4: 'End'}
 
-    max_hp_read = [0] + len_max_hp_end(read) + [0]
+    max_hp_read = [0] + len_max_hp_end(read_tmp) + [0]
     len_hp_ref = len_max_hp_end(reference_tmp)   # information about the length of HP in reference
     forward = float("-inf")*numpy.ones(shape=[len(read), len(reference), max(max_hp_read) + 1,
                                               max(len_hp_ref) + 1, len(states)], dtype=float)
     # print forward.shape
-    forward_position = float("-inf")*numpy.ones(shape=[len(read), len(reference), 5], dtype=float)
+    forward_position = float("-inf")*numpy.ones(shape=[len(read), len(reference), len(states)], dtype=float)
     # print forward_position.shape
     forward_position[0][0][3] = 0
 
@@ -323,9 +324,10 @@ def count_forward(read_tmp, reference_tmp, model):
         result = float("-inf")
         for prev_state in states:
             transition = model.HMM[j - 1].transition(states[prev_state], 'Deletion')
-            emission = model.HMM[j].emission(hp_input, homopolymer(), 'Deletion')
+            # emission = model.HMM[j].emission(hp_input, homopolymer(), 'Deletion')
+            emission = 0
             result = log_sum(result, iter_plog([forward_position[i, j - 1, prev_state], transition, emission]))
-            #print states[prev_state], read_pos, ref_pos, prev_state, k, l, forward_position[read_pos][ref_pos][prev_state]
+            # print states[prev_state], read_pos, ref_pos, prev_state, k, l, forward_position[read_pos][ref_pos][prev_state]
         forward[i, j, k, l, 1] = result
         # print "read: ", i, "len: ", k, "ref: ", j, "len: ", l, states[1], forward[i, j, k, l, 1]
         # print i, j, k, l, states[1], forward[i, j, k, l, 1]
@@ -335,13 +337,13 @@ def count_forward(read_tmp, reference_tmp, model):
     for i in xrange(len(read)):
 
         for j in xrange(len(reference)):
-            if i == j == 0:
+            if i == j == 0:     # Can't align two empty hp
                 continue
 
             for k in range(max_hp_read[i] + 1):
 
                 for l in range(2):
-                    #print "169, ", i, j, k, l
+                    # print "line number: ", getframeinfo(currentframe()).lineno, i, j, k, l
                     if l == 0 and k == 0:
                         continue
                     elif l == 0:
@@ -354,8 +356,9 @@ def count_forward(read_tmp, reference_tmp, model):
             # fill F(i,j,pi)
             for state in states:
                 forward_position[i][j][state] = by_iter_slog(numpy.nditer(forward[i, j, :, :, state]))
-                #if not math.isnan(forward_position[i][j][state]):
-                #    print "---------------------------", i, j, states[state], forward_position[i][j][state]
+                # if not math.isnan(forward_position[i][j][state]):
+                #     print "---------------------------", i, j, states[state], forward_position[i][j][state],
+                # "line number: ", getframeinfo(currentframe()).lineno,
     check = by_iter_slog(numpy.nditer(forward_position[len(read_tmp), len(reference) - 1, :]))
     # print check
     return forward, check
@@ -373,8 +376,7 @@ def count_backward(read_tmp, reference_tmp, model):
     :return: ndarray
     """
     read = ' ' + read_tmp
-    reference = [homopolymer()]
-    reference.extend(nucl_to_hp(reference_tmp))
+    reference = [homopolymer()] + nucl_to_hp(reference_tmp)
     len_ref = len(reference) - 1  # true length
     len_read = len(read_tmp)
     # print "Len_read: ", len_read, "len_reference: ", len_ref
@@ -383,12 +385,12 @@ def count_backward(read_tmp, reference_tmp, model):
     state_index = {'Match': 0, 'Deletion': 1, 'Insertion': 2, 'Begin': 3, 'End': 4}
     max_hp_read_s = [0] + len_max_hp_start(read_tmp)  # because read start from ' '
 
-    # information about the lengthest HP, ending from this position
+    # information about the lengthest HP, ended at this position
     max_hp_read_e = [0] + len_max_hp_end(read_tmp)  # because read start from ' '
     max_hp_ref_e = [0] + len_max_hp_end(reference_tmp)  # because reference start from ' '
 
     backward = float("-inf")*numpy.ones(shape=[len_read + 1, len_ref + 1, max(max_hp_read_e) + 1,
-                                               max(max_hp_ref_e) + 1,  5], dtype=float)
+                                               max(max_hp_ref_e) + 1,  len(states)], dtype=float)
     # print "Size: ", backward.nbytes
     # print "Shape: ", backward.shape
 
@@ -415,10 +417,11 @@ def count_backward(read_tmp, reference_tmp, model):
         read_base = read[i + 1]
         hp_input = reference[j + 1]
         st_index = state_index['Match']
-        emiss = [model.HMM[j + 1].emission(hp_input, homopolymer(read_base, t), 'Match') for t in range(1, hp_len + 1)]
-        bck = [backward[i + t, j + 1, t, reference[j + 1].length, st_index] for t in range(1, hp_len + 1)]
+        result = (-1)*numpy.inf
+        emiss = [model.HMM[j + 1].emission(hp_input, homopolymer(read_base, tt), 'Match') for tt in range(1, hp_len + 1)]
+        bck = [backward[i + tt, j + 1, tt, reference[j + 1].length, st_index] for tt in range(1, hp_len + 1)]
         # print 'Match', i + hp_len, j + 1, hp_len, reference[j + 1].length, backward[i + hp_len, j + 1, hp_len, reference[j + 1].length, st_index]
-        result = [log_product(x, y) for x, y in zip(emiss, bck)]
+        result = [log_product(xx, yy) for xx, yy in zip(emiss, bck)]
         if len(result) == 1:
             return result[0]
         else:
@@ -444,10 +447,11 @@ def count_backward(read_tmp, reference_tmp, model):
         hp_len = max_hp_read_s[i + 1]
         read_base = read[i + 1]
         hp_input = homopolymer()
-        emiss = [model.HMM[j].emission(hp_input, homopolymer(read_base, t), 'Insertion') for t in range(1, hp_len + 1)]
-        bck = [backward[i + t, j, t, 0, st_index] for t in range(1, hp_len + 1)]
+        result = (-1)*numpy.inf
+        emiss = [model.HMM[j].emission(hp_input, homopolymer(read_base, tt), 'Insertion') for tt in range(1, hp_len + 1)]
+        bck = [backward[i + tt, j, tt, 0, st_index] for tt in range(1, hp_len + 1)]
         # print 'Insertion', i + hp_len, j, hp_len, reference[j].length, backward[i + hp_len, j, hp_len, reference[j].length, st_index]
-        result = [log_product(x, y) for x, y in zip(emiss, bck)]
+        result = [log_product(xx, yy) for xx, yy in zip(emiss, bck)]
         if len(result) == 1:
             return result[0]
         else:
@@ -461,10 +465,10 @@ def count_backward(read_tmp, reference_tmp, model):
                 continue
 
             # First count \sum\limits{i,j} p(beta_(i + di)|alpha_(j + dj), pi')*p(k|l, pi')*B(i + di, j + dj, k, pi').
-            # It will be vector of length 3. Then, for each state, we create vector of transition probs,
+            # It is probability of suffix.
+            # It will be vector of length 3. Then, for each state, we create vector of transition probabilities,
             # element-wise multiply them and then get sum.
             part_two = [(-1)*numpy.inf] * len(states)
-
             if j != len_ref and i != len_read and read[i + 1] == reference[j + 1].base:
                 part_two[0] = process_match(i, j)
             if j != len_ref:
@@ -472,44 +476,62 @@ def count_backward(read_tmp, reference_tmp, model):
             if i != len_read:
                 part_two[2] = process_insertion(i, j)
 
-            # Count B(i, j, k, l, Match)
-            if read[i] != reference[j].base:
-                value = (-1)*numpy.inf
-            else:
-                trans_prob = [model.HMM[j].transition('Match', states[k]) for k in range(len(states))]
+            if i == 0 and j == 0: # Begin case!
+                trans_prob = [model.HMM[0].transition('Begin', states[k]) for k in range(len(states))]
+                backward[0, 0, 0, 0, 3] = iter_slog([log_product(x, y) for x, y in zip(trans_prob, part_two)])
+            elif j == 0:
+                # case B(i, 0, k, 0, Insertion)
+                trans_prob = [model.HMM[0].transition('Insertion', states[k]) for k in range(len(states))]
                 if i != len_read and read[i] == read[i + 1]:
-                    trans_prob[2] = float("-inf")
-                value_1 = [log_product(x, y) for x, y in zip(trans_prob, part_two)]
-                value = iter_slog(value_1)
-            for k in range(1, max_hp_read_e[i] + 1):
-                backward[i, j, k, reference[j].length, state_index['Match']] = value
-            # if i < 5 and j < 5:
-            #     print "---------------------------", i, j, 'Match', "{0:.2f}".format(value),
-            # [round(x, 3) for x in part_two], [round(x, 3) for x in
-            # [model.HMM[j].transition('Match', states[k]) for k in range(len(states))]]
+                    trans_prob[0] = float("-inf")
+                value = iter_slog([log_product(x, y) for x, y in zip(trans_prob, part_two)])
+                for k in range(1, max_hp_read_e[i] + 1):
+                    backward[i, 0, k, 0, state_index['Insertion']] = value
+            elif i == 0:
+                # case B(0, j, 0, 1, Deletion)
+                trans_prob = [model.HMM[j].transition('Deletion', states[k]) for k in range(len(states))]
+                value = iter_slog([log_product(x, y) for x, y in zip(trans_prob, part_two)])
+                backward[0, j, 0,  reference[j].length, state_index['Deletion']] = value
+            else:
 
-            # Count B(i, j, k, l, Deletion)
-            trans_prob = [model.HMM[j].transition('Deletion', states[k]) for k in range(len(states))]
-            value = [log_product(x, y) for x, y in zip(trans_prob, part_two)]
-            value = iter_slog(value)
-            # if i < 5 and j < 5:
-            #     print "---------------------------", i, j, 'Deletion', "{0:.2f}".format(value),
-            # [round(x, 3) for x in part_two], [round(x, 3) for x in trans_prob]
-            backward[i, j, 0,  reference[j].length, state_index['Deletion']] = value
+                # Count B(i, j, k, l, Match)
+                if read[i] != reference[j].base:
+                    value = (-1)*numpy.inf
+                else:
+                    trans_prob = [model.HMM[j].transition('Match', states[k]) for k in range(len(states))]
+                    if i != len_read and read[i] == read[i + 1]:
+                        trans_prob[2] = float("-inf")
+                    value_1 = [log_product(x, y) for x, y in zip(trans_prob, part_two)]
+                    value = iter_slog(value_1)
+                for k in range(1, max_hp_read_e[i] + 1):
+                    backward[i, j, k, reference[j].length, state_index['Match']] = value
+                # if i < 5 and j < 5:
+                #     print "---------------------------", i, j, 'Match', "{0:.2f}".format(value),
+                # [round(x, 3) for x in part_two], [round(x, 3) for x in
+                # [model.HMM[j].transition('Match', states[k]) for k in range(len(states))]]
 
-            # Count B(i, j, k, l, Insertion)
-            trans_prob = [model.HMM[j].transition('Insertion', states[k]) for k in range(len(states))]
-            if i != len_read and read[i] == read[i + 1]:
-                trans_prob[0] = float("-inf")
-            value = [log_product(x, y) for x, y in zip(trans_prob, part_two)]
-            value = iter_slog(value)
-            # if i < 5 and j < 5:
-            #     print "---------------------------", i, j, 'Insertion', "{0:.2f}".format(value), [round(x, 3) for x in part_two], [round(x, 3) for x in trans_prob]
-            for k in range(1, max_hp_read_e[i] + 1):
-                backward[i, j, k, 0, state_index['Insertion']] = value
+                # Count B(i, j, k, l, Deletion)
+                trans_prob = [model.HMM[j].transition('Deletion', states[k]) for k in range(len(states))]
+                value = [log_product(x, y) for x, y in zip(trans_prob, part_two)]
+                value = iter_slog(value)
+                # if i < 5 and j < 5:
+                #     print "---------------------------", i, j, 'Deletion', "{0:.2f}".format(value),
+                # [round(x, 3) for x in part_two], [round(x, 3) for x in trans_prob]
+                backward[i, j, 0,  reference[j].length, state_index['Deletion']] = value
+
+                # Count B(i, j, k, l, Insertion)
+                trans_prob = [model.HMM[j].transition('Insertion', states[k]) for k in range(len(states))]
+                if i != len_read and read[i] == read[i + 1]:
+                    trans_prob[0] = float("-inf")
+                value = [log_product(x, y) for x, y in zip(trans_prob, part_two)]
+                value = iter_slog(value)
+                # if i < 5 and j < 5:
+                #     print "---------------------------", i, j, 'Insertion', "{0:.2f}".format(value), [round(x, 3) for x in part_two], [round(x, 3) for x in trans_prob]
+                for k in range(1, max_hp_read_e[i] + 1):
+                    backward[i, j, k, 0, state_index['Insertion']] = value
     check = by_iter_slog(numpy.nditer(backward[0, 0, :, :, :]))
     # print check
-    return backward, check
+    return backward, backward[0, 0, 0, 0, 3]
 
 
 def count_missing_variables(model, read_tmp, reference_tmp): #, transition_matrix):
@@ -626,12 +648,14 @@ def update_parameters(training_set, base_model, max_hp_len, b, sigma, hp_freq):
     ins_base_call = float("-inf")*numpy.ones(shape=[4], dtype=float)
     counter = 0
     for pair in training_set:   # process every pair of read, reference
-        read = pair[0][0:50]
-        reference = pair[1][0:50]
+        read = pair[0][:50]
+        reference = pair[1][:50]
+        print len(pair[0]), len(pair[1])
+        # FOR TESTING! Not intresting fin alignment of equal string
         if read == reference:
             continue
         print counter, "Step", '\n'
-        if counter == 6:
+        if counter == 40:
             break
         counter += 1
         print read, "\n", reference

@@ -227,6 +227,7 @@ class HmmModel:
         length_call_insert_test = self.pseudo_length_call_insert()
         transition_probabilities = numpy.zeros(shape=[len(self.states), len(self.states)], dtype=float)
         for lines in open('./HMM_test.txt'):
+            # print re.split('\t', lines.rstrip('\n'))
             information = re.split('\t', lines.rstrip('\n'))
             if information[0] == '-:':
                 base_call = [float(information[i]) for i in range(1, len(information))]

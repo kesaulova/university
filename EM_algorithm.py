@@ -49,16 +49,13 @@ def form_dataset():
                 i += l
                 g += l
             elif t == 'D':  # skip 'l' number of coordinates in reference
-                deletion = '-'*l
                 # quality_list.extend([0]*l)
                 reference_edit += reference[g:g + l]
                 g += l
             elif t == 'I':  # insertion of 'l' length
-                insertion = '-'*l
                 insertions.append((i, i + l))
                 read_edit += read[i:i + l]
                 quality_list.extend([ord(quality_string[k]) for k in range(i, i + l)])
-                reference_edit += insertion
             elif t == 'N': ## skipped region from the reference
                 pass
             elif t == 'S': ## soft clipping (clipped sequences present in SEQ)
@@ -629,13 +626,15 @@ def update_parameters(training_set, base_model, max_hp_len, b, sigma, hp_freq):
     ins_base_call = float("-inf")*numpy.ones(shape=[4], dtype=float)
     counter = 0
     for pair in training_set:   # process every pair of read, reference
+        read = pair[0][0:50]
+        reference = pair[1][0:50]
+        if read == reference:
+            continue
         print counter, "Step", '\n'
         if counter == 6:
             break
         counter += 1
-
-        read = pair[0][0:20]
-        reference = pair[1][0:20]
+        print read, "\n", reference
         # xi shape: [read_pos, ref_pos, prev_state, curr_state, hp_read_len, hp_ref_len]
         # gamma shape: [read_pos, ref_pos, hp_read_len, hp_ref_len, state]
         gamma, xi = count_missing_variables(base_model, read, reference)
@@ -669,6 +668,8 @@ def update_parameters(training_set, base_model, max_hp_len, b, sigma, hp_freq):
     ins_base_call = base_call_normalize(ins_base_call)
     print "Insertion base call: ", [round(numpy.exp(ins_base_call[i]), 4) for i in range(len(ins_base_call))]
     print "Sigma", sigma
+
+
     length_call_match, length_call_ins, b, sigma = update_length_call_parameters(length_call_matrix,
                                                                                        b, max_hp_len, hp_freq, sigma)
     print "670, Transition matrix", '\n'

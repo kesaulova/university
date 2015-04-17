@@ -246,6 +246,9 @@ class HmmModel:
         return 0
 
     def __init__(self, *args):
+        """
+        Sequence of arguments: base_call, len_call_match, len_call_ins, trans_prob
+        """
         self.__modelLength = 400
         self.states = ['Match', 'Deletion', 'Insertion', 'Begin', 'End']
         self.HMM = []
@@ -264,7 +267,6 @@ class HmmModel:
             else:
                 element = HmmRecord(base_call, len_call_match, len_call_ins, trans_prob)
                 self.HMM = [element]*400
-
 
 
 def create_sequence(model, max_size, reference):

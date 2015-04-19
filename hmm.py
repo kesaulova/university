@@ -73,10 +73,26 @@ class HmmRecord:
         self.bases = ['A', 'C', 'G', 'T']
         self.states = ['Match', 'Deletion', 'Insertion', 'Begin', 'End']
 
-        self.__insert_base_call = self.get_eln(base_call)
-        self.__length_call_insert = self.get_eln(length_call_insert)
-        self.__length_call_match = self.get_eln(length_call)
-        self.__transition_probabilities = self.get_eln(transition_probabilities)
+        if sum(base_call) > 0:
+            self.__insert_base_call = self.get_eln(base_call)
+        else:
+            self.__insert_base_call = base_call
+
+        if sum(length_call_insert) > 0:
+            self.__length_call_insert = self.get_eln(length_call_insert)
+        else:
+            self.__length_call_insert = length_call_insert
+
+        if sum(length_call[0]) > 0:
+            self.__length_call_match = self.get_eln(length_call)
+        else:
+            self.__length_call_match = length_call
+
+        if sum(transition_probabilities[0]) > 0:
+            self.__transition_probabilities = self.get_eln(transition_probabilities)
+        else:
+            self.__transition_probabilities = transition_probabilities
+
         # self__length_call_match = {'A': length_call['A'], 'C': length_call['C'], 'G': length_call['G'],
         #                                     'T': length_call['T']}
         # self.__length_call_insert = {'A': eln(length_call_insert['A']), 'C': eln(length_call_insert['C']),

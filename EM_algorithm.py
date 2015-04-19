@@ -18,143 +18,6 @@ nucl_to_hp = hmm.nucleotide_to_homopolymer
 by_iter_slog = addmath.by_iter_slog
 
 
-def form_dataset():
-
-    def split_cigar(cigar, read, reference, quality_string):
-        """
-        Use sigar string to delete S and other unuseful symbols and detect reference, corresponding to read.
-        :param cigar:
-        :param read: read sequence
-        :param reference: reference sequence. Form like reference[start_pos: start_pos + read_len + 150]
-        :param quality_string: quality string, associated with read
-        :return: updated read, reference, quality (as a list with numbers), length of reference
-        """
-        read_edit = ''
-        reference_edit = ''
-        quality_list = []
-        insertions = []
-        alignments = []
-        pattern = re.compile('([MIDNSHPX=])')
-        values = pattern.split(cigar)[:-1]  # turn cigar into tuple of values
-        paired = (values[n:n+2] for n in xrange(0, len(values), 2)) # pair values by twos
-        i = 0   # read coordinate index
-        g = 0   # reference coordinate index
-        for pair in paired:
-            l = int(pair[0])    # length of CIGAR event
-            t = pair[1]     # type of CIGAR event
-            if t == 'M':    # if match, return consecutive coordinates
-                alignments.append((g, (i, i + l)))   # (genomic offset, (alignment.start, alignment.end))
-                reference_edit += reference[g: g + l]
-                read_edit += read[i:i + l]
-                quality_list.extend([ord(quality_string[k]) - 33 for k in range(i, i + l)])
-                i += l
-                g += l
-            elif t == 'D':  # skip 'l' number of coordinates in reference
-                # quality_list.extend([0]*l)
-                reference_edit += reference[g:g + l]
-                g += l
-            elif t == 'I':  # insertion of 'l' length
-                insertions.append((i, i + l))
-                read_edit += read[i:i + l]
-                quality_list.extend([ord(quality_string[k]) for k in range(i, i + l)])
-            elif t == 'N': ## skipped region from the reference
-                pass
-            elif t == 'S': ## soft clipping (clipped sequences present in SEQ)
-                i += l
-                pass
-            elif t == 'H': ## hard clipping (clipped sequences NOT present in SEQ)
-                pass
-            elif t == 'P': ## padding (silent deletion from padded reference)
-                pass
-            elif t == '=': ## sequence match
-                pass
-            elif t == 'X': # sequence mismatch
-                pass
-        return read_edit, reference_edit, quality_list, g
-
-    def test_count_b(max_len):
-        """
-        Take parameters from article and count b. b = c_0 + c_1*l^c_2
-        :param max_length: maximum length of homopolymer
-        :return: array of length max_length + 1 - for convenience call b[l]
-        """
-        c_0 = 0.665997
-        c_1 = 0.0471694
-        c_2 = 1.23072
-        res = [0]
-        for l in range(max_len):
-            res += [c_0 + c_1 * l**c_2]
-        return res
-
-    def write_set(read, reference, quality, file):
-        """
-        Write training set to file
-        :param read: read string
-        :param reference: reference string
-        :param quality: quality array
-        :param file: file to write
-        :return:
-        """
-        tmp = read + '\n' + reference + '\n' + quality + '\n\n'
-        file.write(tmp)
-        return 0
-
-    # temporary!!!
-    def count_occurrences(ref_str):
-        length_distributions = {'A': [0]*15, 'C': [0]*15, 'G': [0]*15, 'T': [0]*15}
-        hp_length = 1
-        current_base = ref_str[0]
-        for i in xrange(1, len(ref_str)):
-            if ref_str[i] == current_base:
-                hp_length += 1
-            else:
-                if hp_length >= 15:
-                    print 'Length >= 15!', hp_length
-                    continue
-                length_distributions[current_base][hp_length] += 1
-                current_base = ref_str[i]
-                hp_length = 1
-        for key in length_distributions:
-            length_distributions[key] = [item/float(sum(length_distributions[key])) for item in length_distributions[key]]
-        # print "length distrib", length_distributions
-        return length_distributions
-
-    # open fasta-file
-    fasta_string = '0'
-    for line in open("DH10B-K12.fasta", 'r'):
-        if line[0] != '>':
-            fasta_string += line.rstrip('\n')
-
-    training_set = []
-    fasta_length = len(fasta_string)
-    observed_freq = count_occurrences(fasta_string[1:])
-    b_scale = test_count_b(15)
-    tr_set = open("training_set.txt", 'w')
-    i = 0   # counter for number of item in training set
-    len_train_set = 1000
-    for read in open('B22-730.sam'):
-        if i > len_train_set:
-            break
-        else:
-            i += 1
-        if read[0] == "@":
-            continue
-        samRecordFields = re.split('\t', read.rstrip('\n'))
-        read_seq = samRecordFields[9]
-        pos = int(samRecordFields[3])
-        if pos + len(read_seq) + 150 < fasta_length:
-            read, reference, read_quality, end = split_cigar(samRecordFields[5], read_seq,
-                                            fasta_string[pos:pos + len(read_seq) + 150], samRecordFields[10])
-            if read_quality != [] and len(read) == len(samRecordFields[10]):
-                write_set(read, fasta_string[pos:pos + end], samRecordFields[10], tr_set)
-                training_set.append([read, reference, samRecordFields[10]])
-
-        else:
-            continue
-    tr_set.close()
-    return training_set, observed_freq['A'], b_scale
-
-
 def write_to_file_matrix(cur_file, matrix):
     """
     Write given matrix in given file
@@ -218,7 +81,7 @@ def length_last_hp(read):
 
 def len_max_hp_end(sequence):
     """
-    Create list were at each positions is length of lengthest hmm.homopolymer, ended at these position
+    Create list were at each positions is length of lengthiest hmm.homopolymer, ended at these position
     :param sequence: nucleotide sequence
     :return: list with numbers, indicated length of the longest hmm.homopolymer, ended at these position
     """
@@ -235,7 +98,7 @@ def len_max_hp_end(sequence):
 
 def len_max_hp_start(sequence):
     """
-    Create list were at each positions is length of lengthest hmm.homopolymer, starting at these position
+    Create list were at each positions is length of lengthiest hmm.homopolymer, starting at these position
     :param sequence: nucleotide sequence
     :return: list with numbers, indicated length of the longest hmm.homopolymer, ended at these position
     """
@@ -424,7 +287,7 @@ def count_backward(read_tmp, reference_tmp, model):
     state_index = {'Match': 0, 'Deletion': 1, 'Insertion': 2, 'Begin': 3, 'End': 4}
     max_hp_read_s = [0] + len_max_hp_start(read_tmp)  # because read start from ' '
 
-    # information about the lengthest HP, ended at this position
+    # information about the lengthiest HP, ended at this position
     max_hp_read_e = [0] + len_max_hp_end(read_tmp)  # because read start from ' '
     max_hp_ref_e = [0] + len_max_hp_end(reference_tmp)  # because reference start from ' '
 
@@ -459,7 +322,8 @@ def count_backward(read_tmp, reference_tmp, model):
         result = (-1)*numpy.inf
         emiss = [model.HMM[j + 1].emission(hp_input, homopolymer(read_base, tt), 'Match') for tt in range(1, hp_len + 1)]
         bck = [backward[i + tt, j + 1, tt, reference[j + 1].length, st_index] for tt in range(1, hp_len + 1)]
-        # print 'Match', i + hp_len, j + 1, hp_len, reference[j + 1].length, backward[i + hp_len, j + 1, hp_len, reference[j + 1].length, st_index]
+        # print 'Match', i + hp_len, j + 1, hp_len, reference[j + 1].length, \
+        #  backward[i + hp_len, j + 1, hp_len, reference[j + 1].length, st_index]
         result = [log_product(xx, yy) for xx, yy in zip(emiss, bck)]
         if len(result) == 1:
             return result[0]
@@ -473,7 +337,8 @@ def count_backward(read_tmp, reference_tmp, model):
         :param i: read position
         :param j: reference position
         """
-        # print 'Deletion',i, j + 1, 0, reference[j + 1].length, backward[i, j + 1, 0, reference[j + 1].length, state_index['Deletion']]
+        # print 'Deletion',i, j + 1, 0, reference[j + 1].length, \
+        # backward[i, j + 1, 0, reference[j + 1].length, state_index['Deletion']]
         return backward[i, j + 1, 0, reference[j + 1].length, state_index['Deletion']]
 
     def process_insertion(i, j):
@@ -486,10 +351,10 @@ def count_backward(read_tmp, reference_tmp, model):
         hp_len = max_hp_read_s[i + 1]
         read_base = read[i + 1]
         hp_input = homopolymer()
-        result = (-1)*numpy.inf
         emiss = [model.HMM[j].emission(hp_input, homopolymer(read_base, tt), 'Insertion') for tt in range(1, hp_len + 1)]
         bck = [backward[i + tt, j, tt, 0, st_index] for tt in range(1, hp_len + 1)]
-        # print 'Insertion', i + hp_len, j, hp_len, reference[j].length, backward[i + hp_len, j, hp_len, reference[j].length, st_index]
+        # print 'Insertion', i + hp_len, j, hp_len, reference[j].length, backward[i + hp_len, j, \
+        # hp_len, reference[j].length, st_index]
         result = [log_product(xx, yy) for xx, yy in zip(emiss, bck)]
         if len(result) == 1:
             return result[0]
@@ -564,7 +429,8 @@ def count_backward(read_tmp, reference_tmp, model):
                 value = [log_product(x, y) for x, y in zip(trans_prob, part_two)]
                 value = iter_slog(value)
                 # if i < 5 and j < 5:
-                #     print "---------------------------", i, j, 'Insertion', "{0:.2f}".format(value), [round(x, 3) for x in part_two], [round(x, 3) for x in trans_prob]
+                #     print "---------------------------", i, j, 'Insertion', "{0:.2f}".format(value), \
+                # [round(x, 3) for x in part_two], [round(x, 3) for x in trans_prob]
                 for k in range(1, max_hp_read_e[i] + 1):
                     backward[i, j, k, 0, state_index['Insertion']] = value
     check = by_iter_slog(numpy.nditer(backward[0, 0, :, :, :]))
@@ -585,7 +451,7 @@ def count_missing_variables(model, read_tmp, reference_tmp): #, transition_matri
     read = ' ' + read_tmp
     reference = [homopolymer()] + nucl_to_hp(reference_tmp)
 
-    max_hp_read = [0] + len_max_hp_end(read_tmp)    # information about the lengthest HP at each position
+    max_hp_read = [0] + len_max_hp_end(read_tmp)    # information about the lengthiest HP at each position
     max_hp_ref = [0] + len_max_hp_end(reference_tmp)
     ref_hmm_blocks = hmm_block(reference)     # information about HMM blocks
 
@@ -603,13 +469,14 @@ def count_missing_variables(model, read_tmp, reference_tmp): #, transition_matri
 
     # count second missing variable. Need to do it faster - by presenting operations as a vector operations
     # xi(i, j, pi, pi', k, l)
-    xi = float("-inf")*numpy.ones(shape=[len(read), len(reference), len(states), len(states), max(max_hp_read) + 1, max(max_hp_ref) + 1],
-                                        dtype=float)
+    xi = float("-inf")*numpy.ones(shape=[len(read), len(reference), len(states), len(states), max(max_hp_read) + 1,
+                                         max(max_hp_ref) + 1], dtype=float)
 
     def supp(curr_st, prev_st, i, j, k, l, hp_input, hp_output, check):
         # print "transition", model.HMM[j].transition(states[prev_st], states[curr_st])
         transition = model.HMM[j].transition(states[prev_st], states[curr_st])
-        # print "emission", model.HMM[j].emission(hp_input, hp_output, states[curr_st]), hp_input.base, hp_output.base, states[curr_st], j
+        # print "emission", model.HMM[j].emission(hp_input, hp_output, states[curr_st]), hp_input.base, \
+        # hp_output.base, states[curr_st], j
         emission = model.HMM[j].emission(hp_input, hp_output, states[curr_st])
         backward_curr = backward[i, j, k, l, curr_st]
         it = numpy.array([[forward[i - k, j - l, k_tmp, l_tmp, prev_state]
@@ -635,7 +502,8 @@ def count_missing_variables(model, read_tmp, reference_tmp): #, transition_matri
                     supp(2, prev_state, i, j, k, 0, homopolymer(), homopolymer(read[i], k), check_forward)
 
                     # UPDATE TRANSITION
-                    # transition_matrix[prev_state, curr_state] = log_sum(transition_matrix[prev_state, curr_state], xi[i, j, curr_state, prev_state, k, l])
+                    # transition_matrix[prev_state, curr_state] = log_sum(transition_matrix[prev_state, curr_state],
+                    # xi[i, j, curr_state, prev_state, k, l])
     return gamma, xi
 
 
@@ -680,7 +548,7 @@ def update_parameters(training_set, base_model, max_hp_len, b, sigma, hp_freq):
 
     def write_params():
         file_tmp = open("Counted_params.txt", 'w')
-        # transition, insertion base call, length call match / insertion, b, sigma + old params
+
         # write transition matrix
         file_tmp.writelines("\n Transition matrix: \n")
         write_to_file_matrix(file_tmp, get_exp(transition_matrix))
@@ -723,32 +591,33 @@ def update_parameters(training_set, base_model, max_hp_len, b, sigma, hp_freq):
     counter = 0
     max_hp = 0
     for pair in training_set:   # process every pair of read, reference
+
         read = pair[0][:30]
         reference = pair[1][:30]
-        # FOR TESTING! Not intresting fin alignment of equal string
+        # FOR TESTING! Not interesting in alignment of equal string
         if read == reference:
             continue
-        print counter, "Step", '\n'
-        if counter == 15:
+        print counter, "\n Step:", '\n'
+        if counter == 25:
             break
         counter += 1
-        print read, "\n", reference
+        print "Read: ", read, "\nReference:", reference
+
         # xi shape: [read_pos, ref_pos, prev_state, curr_state, hp_read_len, hp_ref_len]
         # gamma shape: [read_pos, ref_pos, hp_read_len, hp_ref_len, state]
         gamma, xi = count_missing_variables(base_model, read, reference)
 
-        max_hp_read = max(len_max_hp_end(read))    # information about the lengthest HP
+        max_hp_read = max(len_max_hp_end(read))    # information about the lengthiest HP
         max_hp_ref = max(len_max_hp_end(reference))
         if max_hp < max_hp_ref:
             max_hp = max_hp_ref
         # update T (transition matrix), T(pi, pi')
-        # !!! Here I don't use begin and end
         for previous in states:
             for current in states:
                 transition_matrix[previous, current] = by_iter_slog(numpy.nditer(xi[:, :, previous, current, :, :]))
 
         # update L(k,l) - occurrences of length calling
-        for k in xrange(max_hp_read + 1):     # maximum length of HP. All of unuseful will be -inf
+        for k in xrange(max_hp_read + 1):     # maximum length of HP. All of not-useful will be -inf
             for l in xrange(max_hp_ref + 1):
                 # print l, k, "Shape: ", length_call_matrix.shape
                 length_call_matrix[l, k] = by_iter_slog(numpy.nditer(gamma[:, :, k, l, :]))
@@ -765,7 +634,6 @@ def update_parameters(training_set, base_model, max_hp_len, b, sigma, hp_freq):
     length_call_match, length_call_ins, new_b, new_sigma = update_length_call_parameters(length_call_matrix,
                                                                                        b, max_hp_len, hp_freq, sigma)
     write_params()
-    # new_model = hmm.HmmModel(ins_base_call, length_call_match, length_call_ins, transition_matrix)
     return ins_base_call, length_call_match, length_call_ins, transition_matrix
 
 
@@ -947,7 +815,7 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
         result = numpy.zeros(shape=[max_hp_length], dtype=float)
 
         def lcall(x, k):
-            num = lognorm.pdf(x, 1, loc=0, scale=sigma_scale) * laplace.pdf(x, loc=k, scale=b_scale[k])
+            num = lognorm.pdf(x, 1, loc=0, scale=sigma_scale) * laplace.pdf(x, loc=k, scale=b_scale[k]) * pk[k]
             denom = sum([pk[i] * laplace.pdf(x, loc=i, scale=b_scale[i]) for i in range(1, max_hp_length + 1)])
             return num/denom
 
@@ -957,6 +825,10 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
         return result
 
     def write_evr():
+        """
+        Write to files all counted params
+        :return:
+        """
         file_tmp = open("p_f_k_l.txt", 'w')
         for ff in range(0, len(f), len(f)/max_length_hp):
             file_tmp.writelines("\n p(f | k, l), f = " + str(f[ff]) + '\n')
@@ -1012,33 +884,11 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
     length_call_insertion = count_length_insertion(max_length_hp, new_sigma, new_b, p_k)
     return get_eln(length_call_match), get_eln(length_call_insertion), new_b, new_sigma
 
-#
-# def main():
-#     """
-#     Implement training of HMM.
-#     :param sample_data: {(r^d, t^d), d = 1..N} - N pair of reads and mapped reference segments
-#     :param model: start model
-#     :return:
-#     """
-#     hmm_test = hmm.HmmModel()
-#     """
+
 #     read = "GCGTTTGGCGTCGAACCCAATTCCCGCCTCATTGGAAAACATACTGCGCCCAAATGACGTGGGGAAGTTGCCCGATATTCATTACG"
 #     reference = "GCGTTTGGCGTCGAACCCATTCCCGCCTCATTGGAAAACATACTGCGCTGAAAACCGTTAGTAATCGCCTGGCTTAAGGTA"
-#     print "Count forward"
-#     count_forward(read, reference, hmm_test)
-#     print "Count backward"
-#     count_backward(read, reference, hmm_test)
-#     print "Count missing variables"
-#     count_missing_variables(hmm_test, read, reference)
-#     """
-#
-#     train_set, freq, b = form_dataset()
-#     print "Dataset formed"
-#     print freq
-#     update_parameters(train_set, hmm_test, 14, b, 4, freq)
-#     # form hmm: base_call, len_call_match, len_call_ins, trans_prob
-#     return 0
+
 #
 
 
-main()
+# main()

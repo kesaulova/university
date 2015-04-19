@@ -12,7 +12,7 @@ iter_plog = addmath.iter_plog
 
 def process_read(read):
     """
-    Create string were at each positions is length of lengthest hmm.homopolymer, ended at these position
+    Create string were at each positions is length of lengthiest hmm.homopolymer, ended at these position
     :param read: nucleotide sequence
     :return: list with numbers, indicated length of the longest hmm.hmm.homopolymer, ended at these position
     """
@@ -79,14 +79,13 @@ def viterbi_initialize(model, reference, read, k_max, viterbi_probability,  vite
     :param model: HMM model
     :param reference: reference as homopolymer sequence
     :param read: read as nucleotide sequence
-    :param k_max: array, containing for each position length of lengthest HP, ending at this position
+    :param k_max: array, containing for each position length of lengthiest HP, ending at this position
     :param viterbi_probability: probability array
     :param viterbi_backtracking: array, containing indexes of previous elements in path
     :return:
     """
     states = {0: 'Match', 1: 'Deletion', 2: 'Insertion', 3: 'Begin'}#, 4: 'End'}
     # V(0,j,0,M) = V(0,j,0,I) = 0, V(0,j,0,D) != 0
-    # print 'Shape of Viterbi matrix: ', viterbi_backtracking.shape
     viterbi_probability[0, 0, 0, 0] = float("-inf")
     viterbi_backtracking[0, 0, 0, 0] = 'Impossible'
     viterbi_probability[0, 0, 0, 1] = float("-inf")
@@ -123,16 +122,20 @@ def viterbi_initialize(model, reference, read, k_max, viterbi_probability,  vite
             viterbi_backtracking[0, j, 0, 1] = str(0) + ' ' + str(j - 1) + ' ' + str(0) + ' ' + str(1)
     # V(i,0,k,M) = V(i,0,k,D) = 0
     for i in xrange(1, len(read)):
+
         # k count from 1 - it is length of HP in sequence
         for k in xrange(1, k_max[i] + 1):
             viterbi_probability[i, 0, k, 0] = float("-inf")     # V(i,0,k,Match)
             viterbi_backtracking[i, 0, k, 0] = 'Impossible'
+
             viterbi_probability[i, 0, k, 1] = float("-inf")    # V(i,0,k,Deletion)
             viterbi_backtracking[i, 0, k, 1] = 'Impossible'
+
             # Count V(i,0,k,Insertion). Have to find max among V(i - k, 0, 1:k_max[i - k], Insertion)
             # 1:k_max[i - k], because there is no deletions
             # First, initialize V(i,0,k,I) when i < k_max[(len(first hmm.homopolymer)], because in this case transition
             # probabilities is initial probabilities
+
             if k == i and k <= length_first_hp(read):     # case V(i, 0, i, Ins) - come from begining, i = len(firstHP)
                 trans_prob = model.HMM[0].transition('Begin', 'Insertion')
                 current_hp = hmm.homopolymer(read[i], k)
@@ -148,7 +151,8 @@ def viterbi_initialize(model, reference, read, k_max, viterbi_probability,  vite
             value = float("-inf")
             for k_prev in xrange(1, k_max[i - k] + 1):
                 for state in states:
-                    # print "Previous, line 126 ", i - k, 0, k_prev, states[state], "transition ", model.HMM[0].transition(states[state], 'Insertion'), \
+                    # print "Previous, line 126 ", i - k, 0, k_prev, states[state], "transition ", 
+                    # model.HMM[0].transition(states[state], 'Insertion'), \
                     # "viterbi: ", viterbi_probability[i - k, 0, k_prev, state]
                     # value = tran_prob * V(previous)
                     value = log_product(model.HMM[0].transition(states[state], 'Insertion'),
@@ -159,6 +163,8 @@ def viterbi_initialize(model, reference, read, k_max, viterbi_probability,  vite
                         max_prob = value
                         number = [i - k, 0, k_prev, state]
                     # count probability
+
+            assert (k <= 10), "k is too large: " + str(k)
             emiss_prob = model.HMM[0].emission(hmm.homopolymer(), current_hp, 'Insertion')
             viterbi_probability[i, 0, k, 2] = log_product(value, emiss_prob)
             viterbi_backtracking[i, 0, k, 2] = str(number[0]) + ' ' + str(number[1]) + ' ' + str(number[2]) + \
@@ -178,7 +184,7 @@ def process_match(i, j, k, read, reference, k_max, viterbi_probability, viterbi_
     :param k: length of output HP
     :param read: read as nucleotide sequence
     :param reference: reference as homopolymer sequence
-    :param k_max: array, containing for each position length of lengthest HP, ending at this position
+    :param k_max: array, containing for each position length of lengthiest HP, ending at this position
     :param viterbi_probability: probability array
     :param viterbi_backtracking: array, containing indexes of previous elements in path
     :param model: HMM model
@@ -233,7 +239,7 @@ def process_insertion(i, j, k, read, reference, k_max, viterbi_probability, vite
     :param k: length of output HP
     :param read: read as nucleotide sequence
     :param reference: reference as homopolymer sequence
-    :param k_max: array, containing for each position length of lengthest HP, ending at this position
+    :param k_max: array, containing for each position length of lengthiest HP, ending at this position
     :param viterbi_probability: probability array
     :param viterbi_backtracking: array, containing indexes of previous elements in path
     :param model: HMM model
@@ -249,9 +255,10 @@ def process_insertion(i, j, k, read, reference, k_max, viterbi_probability, vite
         for state in states:
             value = log_product(viterbi_probability[i - k, j, 0, state],
                                 model.HMM[j].transition(states[prev_index[3]], 'Insertion'))
-            # print 'Previous, 200 line:', i - k, j, 0, states[state], "Viterbi ", viterbi_probability[i - k, j, 0, state], \
-            # "trans ", model.HMM[j].transition(states[prev_index[3]], 'Insertion'), value
-            #if (max_prob == 0 or value == 0) and max_prob != float("-inf"):
+            # print 'Previous, 200 line:', i - k, j, 0, states[state], "Viterbi ", \
+            # viterbi_probability[i - k, j, 0, state], "trans ", \
+            # model.HMM[j].transition(states[prev_index[3]], 'Insertion'), value
+            # if (max_prob == 0 or value == 0) and max_prob != float("-inf"):
             #    if abs(value) > abs(max_prob):
             #        max_prob = value
             #        prev_index = [i - k, j, 0, state]
@@ -267,7 +274,7 @@ def process_insertion(i, j, k, read, reference, k_max, viterbi_probability, vite
             # model.HMM[j].transition(states[prev_index[3]], 'Insertion'), value
             if value == float("-inf") and viterbi_backtracking[i - k, j, k_prev, state] != '1':
                 continue
-            #if (max_prob == 0 or value == 0) and max_prob != float("-inf"):
+            # if (max_prob == 0 or value == 0) and max_prob != float("-inf"):
             #    if abs(value) > abs(max_prob):
             #        max_prob = value
             #        prev_index = [i - k, j, k_prev, state]
@@ -275,7 +282,7 @@ def process_insertion(i, j, k, read, reference, k_max, viterbi_probability, vite
                 max_prob = value
                 prev_index = [i - k, j, k_prev, state]
 
-    #if max_prob == float("-inf"):
+    # if max_prob == float("-inf"):
     #    max_prob = 0
     viterbi_probability[i, j, k, 2] = log_product(max_prob, emiss_prob)
     viterbi_backtracking[i, j, k, 2] = str(prev_index[0]) + ' ' + str(prev_index[1]) + ' ' + str(prev_index[2]) + \
@@ -335,7 +342,7 @@ def parse_viterbi(probability, backtracking, read, reference):
     :param read: nucleotide sequence of read
     :return: sequence of hidden state
     """
-    print "Read: ", read
+    # print "Read: ", read
     reference_length = len(reference)
     read_length = len(read)
     last_hp = length_last_hp(read)
@@ -349,11 +356,11 @@ def parse_viterbi(probability, backtracking, read, reference):
     inf = parse_backtracking(backtracking[read_length, reference_length, last_hp, state_max])
     path.append(states[inf[3]])
     while backtracking[inf[0], inf[1], inf[2], inf[3]] != 'Begin':
-        print 'prob: ', probability[inf[0], inf[1], inf[2], inf[3]]
+        # print 'prob: ', probability[inf[0], inf[1], inf[2], inf[3]]
         path_probability += probability[inf[0], inf[1], inf[2], inf[3]]
         inf = parse_backtracking(backtracking[inf[0], inf[1], inf[2], inf[3]])
         path.append(states[inf[3]])
-    print "Probability: ", path_probability
+    # print "Probability: ", path_probability
     return path[::-1], path_probability
 
 
@@ -364,16 +371,16 @@ def viterbi_path(read, reference, model):
     :return: most probable path of hidden state and its probability
     """
     k_max = [0]
-    k_max.extend(process_read(read))    # information about length of lengthest HP's, ended at each positions
+    k_max.extend(process_read(read))    # information about length of lengthiest HP's, ended at each positions
     read = ' ' + read
     reference = [hmm.homopolymer()] + hmm.nucleotide_to_homopolymer(reference)
     max_k_value = max(k_max) + 1
     states = {0: 'Match', 1: 'Deletion', 2: 'Insertion'}  # , 3: 'End'}
     viterbi_probability = float("-inf")*numpy.ones(shape=[len(read), len(reference), max_k_value, 5], dtype=float)
     viterbi_backtracking = numpy.ones(shape=[len(read), len(reference), max_k_value, 5], dtype=basestring)
-    # initialize model, process i = 0, j = 0 cases
     viterbi_probability, viterbi_backtracking = viterbi_initialize(model, reference, read, k_max, viterbi_probability,
                                                                    viterbi_backtracking)
+
     for i in xrange(1, len(read)):
         for j in xrange(1, len(reference)):
             for k in xrange(1, k_max[i] + 1):

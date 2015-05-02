@@ -27,8 +27,8 @@ def write_to_file_matrix(cur_file, matrix):
     """
     dim_1 = numpy.asarray(matrix).shape[0]
     dim_2 = numpy.asarray(matrix).shape[1]
-    for row in range(dim_1):
-        cur_file.writelines(['\t'.join([str(round(matrix[row, col], 4)) for col in range(dim_2)]), '\n'])
+    for row in xrange(dim_1):
+        cur_file.writelines(['\t'.join([str(round(matrix[row, col], 4)) for col in xrange(dim_2)]), '\n'])
     return 0
 
 
@@ -40,7 +40,7 @@ def write_to_file_array(cur_file, array):
     :return: nothing
     """
     dim_1 = len(array)
-    cur_file.writelines(['\t'.join([str(round(array[col], 4)) for col in range(dim_1)]), '\n'])
+    cur_file.writelines(['\t'.join([str(round(array[col], 4)) for col in xrange(dim_1)]), '\n'])
     return 0
 
 
@@ -68,10 +68,29 @@ def get_exp(item):
     return nd_item
 
 
+def hmm_block(reference):
+    """
+    Process reference string, detect hmm_block for each position of reference
+    (reference block - number of HP from begining)
+    :param reference: nucleotide reference
+    :return: list of length len(reference), where number of each position determine what hmm_block correspond by this
+    nucleotide in reference
+    """
+    result = [0]*len(reference)
+    base = reference[0]
+    for i in xrange(1, len(reference)):
+        if reference[i] == base:
+            result[i] = result[i - 1]
+        else:
+            base = reference[i]
+            result[i] = result[i - 1] + 1
+    return result
+
+
 def length_last_hp(read):
     result = 1
     base = read[len(read) - 1]
-    for i in range(len(read) - 2, -1, -1):
+    for i in xrange(len(read) - 2, -1, -1):
         if read[i] == base:
             result += 1
         else:
@@ -87,7 +106,7 @@ def len_max_hp_end(sequence):
     """
     result = [1]*len(sequence)
     base = sequence[0]
-    for i in range(1, len(sequence)):
+    for i in xrange(1, len(sequence)):
         if sequence[i] == base:
             result[i] = result[i - 1] + 1
         else:
@@ -104,7 +123,7 @@ def len_max_hp_start(sequence):
     """
     result = [1]*len(sequence)
     base = sequence[len(sequence) - 1]
-    for i in range(len(sequence) - 2, -1, -1):
+    for i in xrange(len(sequence) - 2, -1, -1):
         if sequence[i] == base:
             result[i] = result[i + 1] + 1
         else:
@@ -113,31 +132,12 @@ def len_max_hp_start(sequence):
     return result
 
 
-def hmm_block(reference):
-    """
-    Process reference string, detect hmm_block for each position of reference
-    (reference block - number of HP from begining)
-    :param reference: nucleotide reference
-    :return: list of length len(reference), where number of each position determine what hmm_block correspond by this
-    nucleotide in reference
-    """
-    result = [0]*len(reference)
-    base = reference[0]
-    for i in range(1, len(reference)):
-        if reference[i] == base:
-            result[i] = result[i - 1]
-        else:
-            base = reference[i]
-            result[i] = result[i - 1] + 1
-    return result
-
-
-# I count F and B from 1! Read and reference. In HMM 0 block carry information about initial probability distribution
+# I count F and B from 1! Read and reference. In HMM 0 block carries information about initial probability distribution
 def count_forward(read_tmp, reference_tmp, model):
     """
     Count forward variable F(i,j,k,l,pi) - is the probability summarizing over all possible alignments ending at
-    the hidden state pi between the prefixes read[ 1:i] and reference[1: j] in which a k bp homopolymer at the
-    read position i is aligned to a l bp homopolymer in the reference position j .
+    the hidden state pi between the prefixes read[1:i] and reference[1:j] in which a k bp homopolymer at the
+    read position i is aligned to a l bp homopolymer in the reference position j.
     :param read_tmp: read, nucleotide sequence
     :param reference_tmp: reference, nucleotide sequence
     :param model: HMM model
@@ -151,12 +151,15 @@ def count_forward(read_tmp, reference_tmp, model):
     states_without_match = {1: 'Deletion', 2: 'Insertion', 3: 'Begin', 4: 'End'}
 
     max_hp_read = [0] + len_max_hp_end(read_tmp) + [0]
+
+
+    # WHY WITHOUT 0
     len_hp_ref = len_max_hp_end(reference_tmp)   # information about the length of HP in reference
+
+
     forward = float("-inf")*numpy.ones(shape=[len(read), len(reference), max(max_hp_read) + 1,
                                               max(len_hp_ref) + 1, len(states)], dtype=float)
-    # print forward.shape
     forward_position = float("-inf")*numpy.ones(shape=[len(read), len(reference), len(states)], dtype=float)
-    # print forward_position.shape
     forward_position[0][0][3] = 0
 
     def process_match(i, j, k, hp_input, hp_output):
@@ -213,7 +216,7 @@ def count_forward(read_tmp, reference_tmp, model):
         # print i, j, k, l, states[2], forward[i, j, k, l, 2]
         return 0
 
-    def process_deletion(i, j, k, hp_input):
+    def process_deletion(i, j, k):
         """
         Count F(i, j, k, l, Deletion).
         :param i: read position
@@ -226,43 +229,38 @@ def count_forward(read_tmp, reference_tmp, model):
         result = float("-inf")
         for prev_state in states:
             transition = model.HMM[j - 1].transition(states[prev_state], 'Deletion')
-            # emission = model.HMM[j].emission(hp_input, homopolymer(), 'Deletion')
-            emission = 0
-            result = log_sum(result, iter_plog([forward_position[i, j - 1, prev_state], transition, emission]))
-            # print states[prev_state], read_pos, ref_pos, prev_state, k, l, forward_position[read_pos][ref_pos][prev_state]
+            result = log_sum(result, iter_plog([forward_position[i, j - 1, prev_state], transition]))
         forward[i, j, k, reference[j].length, 1] = result
-        # print "read: ", i, "len: ", k, "ref: ", j, "len: ", l, states[1], forward[i, j, k, l, 1]
-        # print i, j, k, l, states[1], forward[i, j, k, l, 1]
         return 0
 
     # start from 0, because there can be insertions and deletions at the begining
     for i in xrange(len(read)):
 
         for j in xrange(len(reference)):
+
             if i == j == 0:     # Can't align two empty hp
                 continue
 
-            for k in range(max_hp_read[i] + 1):
+            for k in xrange(max_hp_read[i] + 1):
 
-                for l in range(2):
-                    # print "line number: ", getframeinfo(currentframe()).lineno, i, j, k, l
+                for l in xrange(2):
+
                     if l == 0 and k == 0:
                         continue
                     elif l == 0:
                         process_insertion(i, j, k, homopolymer(read[i], k))
                     elif k == 0:
-                        process_deletion(i, j, k, reference[j])
+                        process_deletion(i, j, k)
                     elif read[i] == reference[j].base:
                         process_match(i, j, k, reference[j], homopolymer(read[i], k))
 
             # fill F(i,j,pi)
             for state in states:
                 forward_position[i][j][state] = by_iter_slog(numpy.nditer(forward[i, j, :, :, state]))
-                # if not math.isnan(forward_position[i][j][state]):
-                #     print "---------------------------", i, j, states[state], forward_position[i][j][state],
-                # "line number: ", getframeinfo(currentframe()).lineno,
+
     check = by_iter_slog(numpy.nditer(forward_position[len(read_tmp), len(reference) - 1, :]))
-    # print check
+    # print forward_position[len(read_tmp), len(reference) - 1, :]
+
     return forward, check
 
 
@@ -280,8 +278,7 @@ def count_backward(read_tmp, reference_tmp, model):
     read = ' ' + read_tmp
     reference = [homopolymer()] + nucl_to_hp(reference_tmp)
     len_ref = len(reference) - 1  # true length
-    len_read = len(read_tmp)
-    # print "Len_read: ", len_read, "len_reference: ", len_ref
+    len_read = len(read) - 1  # true length
     # position and create len_sequence to remember true length
     states = {0: 'Match', 1: 'Deletion', 2: 'Insertion', 3: 'Begin', 4: 'End'}
     state_index = {'Match': 0, 'Deletion': 1, 'Insertion': 2, 'Begin': 3, 'End': 4}
@@ -293,19 +290,17 @@ def count_backward(read_tmp, reference_tmp, model):
 
     backward = float("-inf")*numpy.ones(shape=[len_read + 1, len_ref + 1, max(max_hp_read_e) + 1,
                                                max(max_hp_ref_e) + 1,  len(states)], dtype=float)
-    # print "Size: ", backward.nbytes
-    # print "Shape: ", backward.shape
 
     # initialize
     # B(i, m, 0, 1, Deletion)
     backward[len_read, len_ref, 0, reference[len_ref].length, state_index['Deletion']] = 0
     # B(n, m, k, 0, Insertion)
     emiss = [model.HMM[len_ref].emission(homopolymer(), homopolymer(read[len_read], t), 'Insertion')
-             for t in range(1, length_last_hp(read) + 1)]
+             for t in xrange(1, length_last_hp(read) + 1)]
     backward[len_read, len_ref, 1: length_last_hp(read) + 1, 0, state_index['Insertion']] = emiss
     # B(n, m, k, 1, Match)
     emiss = [model.HMM[len_ref].emission(reference[len_ref], homopolymer(read[len_read], t), 'Match')
-             for t in range(1, length_last_hp(read) + 1)]
+             for t in xrange(1, length_last_hp(read) + 1)]
     backward[len_read, len_ref, 1: length_last_hp(read) + 1, reference[len_ref].length, state_index['Match']] = emiss
 
     def process_match(i, j):
@@ -319,12 +314,9 @@ def count_backward(read_tmp, reference_tmp, model):
         read_base = read[i + 1]
         hp_input = reference[j + 1]
         st_index = state_index['Match']
-        result = (-1)*numpy.inf
-        emiss = [model.HMM[j + 1].emission(hp_input, homopolymer(read_base, tt), 'Match') for tt in range(1, hp_len + 1)]
-        bck = [backward[i + tt, j + 1, tt, reference[j + 1].length, st_index] for tt in range(1, hp_len + 1)]
-        # print 'Match', i + hp_len, j + 1, hp_len, reference[j + 1].length, \
-        #  backward[i + hp_len, j + 1, hp_len, reference[j + 1].length, st_index]
-        result = [log_product(xx, yy) for xx, yy in zip(emiss, bck)]
+        emiss = [model.HMM[j + 1].emission(hp_input, homopolymer(read_base, tt), 'Match') for tt in xrange(1, hp_len + 1)]
+        bck = numpy.array([backward[i + tt, j + 1, tt, reference[j + 1].length, st_index] for tt in xrange(1, hp_len + 1)])
+        result = emiss + bck
         if len(result) == 1:
             return result[0]
         else:
@@ -337,8 +329,6 @@ def count_backward(read_tmp, reference_tmp, model):
         :param i: read position
         :param j: reference position
         """
-        # print 'Deletion',i, j + 1, 0, reference[j + 1].length, \
-        # backward[i, j + 1, 0, reference[j + 1].length, state_index['Deletion']]
         return backward[i, j + 1, 0, reference[j + 1].length, state_index['Deletion']]
 
     def process_insertion(i, j):
@@ -351,16 +341,13 @@ def count_backward(read_tmp, reference_tmp, model):
         hp_len = max_hp_read_s[i + 1]
         read_base = read[i + 1]
         hp_input = homopolymer()
-        emiss = [model.HMM[j].emission(hp_input, homopolymer(read_base, tt), 'Insertion') for tt in range(1, hp_len + 1)]
-        bck = [backward[i + tt, j, tt, 0, st_index] for tt in range(1, hp_len + 1)]
-        # print 'Insertion', i + hp_len, j, hp_len, reference[j].length, backward[i + hp_len, j, \
-        # hp_len, reference[j].length, st_index]
-        result = [log_product(xx, yy) for xx, yy in zip(emiss, bck)]
+        emiss = [model.HMM[j].emission(hp_input, homopolymer(read_base, tt), 'Insertion') for tt in xrange(1, hp_len + 1)]
+        bck = numpy.array([backward[i + tt, j, tt, 0, st_index] for tt in xrange(1, hp_len + 1)])
+        result = emiss + bck
         if len(result) == 1:
             return result[0]
         else:
             return iter_slog(result)
-
 
     for i in xrange(len_read, -1, -1):  # read position
         for j in xrange(len_ref, -1, -1):     # reference position
@@ -371,7 +358,7 @@ def count_backward(read_tmp, reference_tmp, model):
             # It is probability of suffix.
             # It will be vector of length 3. Then, for each state, we create vector of transition probabilities,
             # element-wise multiply them and then get sum.
-            part_two = [(-1)*numpy.inf] * len(states)
+            part_two = numpy.array([(-1)*numpy.inf] * len(states))
             if j != len_ref and i != len_read and read[i + 1] == reference[j + 1].base:
                 part_two[0] = process_match(i, j)
             if j != len_ref:
@@ -379,62 +366,33 @@ def count_backward(read_tmp, reference_tmp, model):
             if i != len_read:
                 part_two[2] = process_insertion(i, j)
 
-            if i == 0 and j == 0: # Begin case!
-                trans_prob = [model.HMM[0].transition('Begin', states[k]) for k in range(len(states))]
-                backward[0, 0, 0, 0, 3] = iter_slog([log_product(x, y) for x, y in zip(trans_prob, part_two)])
-            elif j == 0:
-                # case B(i, 0, k, 0, Insertion)
-                trans_prob = [model.HMM[0].transition('Insertion', states[k]) for k in range(len(states))]
-                if i != len_read and read[i] == read[i + 1]:
-                    trans_prob[0] = float("-inf")
-                value = iter_slog([log_product(x, y) for x, y in zip(trans_prob, part_two)])
-                for k in range(1, max_hp_read_e[i] + 1):
-                    backward[i, 0, k, 0, state_index['Insertion']] = value
-            elif i == 0:
-                # case B(0, j, 0, 1, Deletion)
-                trans_prob = [model.HMM[j].transition('Deletion', states[k]) for k in range(len(states))]
-                value = iter_slog([log_product(x, y) for x, y in zip(trans_prob, part_two)])
-                backward[0, j, 0,  reference[j].length, state_index['Deletion']] = value
-            else:
-
+            if i != 0 or j != 0:
                 # Count B(i, j, k, l, Match)
-                if read[i] != reference[j].base:
-                    value = (-1)*numpy.inf
-                else:
-                    trans_prob = [model.HMM[j].transition('Match', states[k]) for k in range(len(states))]
+                if read[i] == reference[j].base:
+                    trans_prob = [model.HMM[j].transition('Match', states[k]) for k in xrange(len(states))]
                     if i != len_read and read[i] == read[i + 1]:
                         trans_prob[2] = float("-inf")
-                    value_1 = [log_product(x, y) for x, y in zip(trans_prob, part_two)]
-                    value = iter_slog(value_1)
-                for k in range(1, max_hp_read_e[i] + 1):
-                    backward[i, j, k, reference[j].length, state_index['Match']] = value
-                # if i < 5 and j < 5:
-                #     print "---------------------------", i, j, 'Match', "{0:.2f}".format(value),
-                # [round(x, 3) for x in part_two], [round(x, 3) for x in
-                # [model.HMM[j].transition('Match', states[k]) for k in range(len(states))]]
+                    value = iter_slog(trans_prob + part_two)
+                    for k in xrange(1, max_hp_read_e[i] + 1):
+                        backward[i, j, k, reference[j].length, state_index['Match']] = value
 
                 # Count B(i, j, k, l, Deletion)
-                trans_prob = [model.HMM[j].transition('Deletion', states[k]) for k in range(len(states))]
-                value = [log_product(x, y) for x, y in zip(trans_prob, part_two)]
-                value = iter_slog(value)
-                # if i < 5 and j < 5:
-                #     print "---------------------------", i, j, 'Deletion', "{0:.2f}".format(value),
-                # [round(x, 3) for x in part_two], [round(x, 3) for x in trans_prob]
+                trans_prob = [model.HMM[j].transition('Deletion', states[k]) for k in xrange(len(states))]
+                value = iter_slog(trans_prob + part_two)
                 backward[i, j, 0,  reference[j].length, state_index['Deletion']] = value
 
                 # Count B(i, j, k, l, Insertion)
-                trans_prob = [model.HMM[j].transition('Insertion', states[k]) for k in range(len(states))]
+                trans_prob = [model.HMM[j].transition('Insertion', states[k]) for k in xrange(len(states))]
                 if i != len_read and read[i] == read[i + 1]:
                     trans_prob[0] = float("-inf")
-                value = [log_product(x, y) for x, y in zip(trans_prob, part_two)]
-                value = iter_slog(value)
-                # if i < 5 and j < 5:
-                #     print "---------------------------", i, j, 'Insertion', "{0:.2f}".format(value), \
-                # [round(x, 3) for x in part_two], [round(x, 3) for x in trans_prob]
-                for k in range(1, max_hp_read_e[i] + 1):
+                value = iter_slog(trans_prob + part_two)
+                for k in xrange(1, max_hp_read_e[i] + 1):
                     backward[i, j, k, 0, state_index['Insertion']] = value
-    check = by_iter_slog(numpy.nditer(backward[0, 0, :, :, :]))
-    # print check
+
+            else:   # i == 0 and j == 0:     # Begin case!
+                trans_prob = [model.HMM[0].transition('Begin', states[k]) for k in xrange(len(states))]
+                backward[0, 0, 0, 0, 3] = iter_slog(trans_prob + part_two)
+                # print trans_prob + part_two
     return backward, backward[0, 0, 0, 0, 3]
 
 
@@ -453,12 +411,12 @@ def count_missing_variables(model, read_tmp, reference_tmp): #, transition_matri
 
     max_hp_read = [0] + len_max_hp_end(read_tmp)    # information about the lengthiest HP at each position
     max_hp_ref = [0] + len_max_hp_end(reference_tmp)
-    ref_hmm_blocks = hmm_block(reference)     # information about HMM blocks
 
     forward, check_forward = count_forward(read_tmp, reference_tmp, model)
     backward, check_backward = count_backward(read_tmp, reference_tmp, model)
     #  check_forward and check_backward must be same
     print "Difference: ", abs(check_forward - check_backward)
+    print numpy.exp(check_backward)/numpy.exp(check_forward)
     # shape of forward and backward must also be the same
     # print "Shape: ", forward.shape, backward.shape
 
@@ -473,14 +431,11 @@ def count_missing_variables(model, read_tmp, reference_tmp): #, transition_matri
                                          max(max_hp_ref) + 1], dtype=float)
 
     def supp(curr_st, prev_st, i, j, k, l, hp_input, hp_output, check):
-        # print "transition", model.HMM[j].transition(states[prev_st], states[curr_st])
         transition = model.HMM[j].transition(states[prev_st], states[curr_st])
-        # print "emission", model.HMM[j].emission(hp_input, hp_output, states[curr_st]), hp_input.base, \
-        # hp_output.base, states[curr_st], j
         emission = model.HMM[j].emission(hp_input, hp_output, states[curr_st])
         backward_curr = backward[i, j, k, l, curr_st]
         it = numpy.array([[forward[i - k, j - l, k_tmp, l_tmp, prev_state]
-               for k_tmp in range(max_hp_read[i - k] + 1)] for l_tmp in range(2)])
+               for k_tmp in xrange(max_hp_read[i - k] + 1)] for l_tmp in xrange(2)])
         it = it.flatten()
         it = iter_slog(it)
         xi[i, j, curr_st, prev_st, k, l] = iter_plog([transition, backward_curr, emission,  it, (-1)*check])
@@ -488,7 +443,7 @@ def count_missing_variables(model, read_tmp, reference_tmp): #, transition_matri
 
     for i in xrange(1, len(read)):  # read position, start from 1 (count position from 1)
         for j in xrange(1, len(reference)):     # reference position
-            for k in range(max_hp_read[i] + 1):     # maximum length of HP, ending at i
+            for k in xrange(max_hp_read[i] + 1):     # maximum length of HP, ending at i
                 for prev_state in states:   # previous state
 
                     if k == 0:
@@ -507,7 +462,7 @@ def count_missing_variables(model, read_tmp, reference_tmp): #, transition_matri
     return gamma, xi
 
 
-def update_parameters(training_set, base_model, max_hp_len, b, sigma, hp_freq):
+def update_parameters(training_set, base_model, max_hp_len, b, sigma, hp_freq, len_string):
     """
 
     :param training_set: set of pairs read-reference
@@ -527,7 +482,7 @@ def update_parameters(training_set, base_model, max_hp_len, b, sigma, hp_freq):
         :return: normalized matrix
         """
         tmp_matrix = numpy.exp(transition_matrix)
-        for i in range(len(states)):
+        for i in xrange(len(states)):
             if sum(tmp_matrix[i, ]) != 0:   # ATTENTION! Do it because don't count begin/end
                 tmp_matrix[i, ] = tmp_matrix[i, ] / sum(tmp_matrix[i, ])
         for x in numpy.nditer(tmp_matrix, op_flags=['readwrite']):
@@ -552,7 +507,7 @@ def update_parameters(training_set, base_model, max_hp_len, b, sigma, hp_freq):
         # write transition matrix
         file_tmp.writelines("\n Transition matrix: \n")
         write_to_file_matrix(file_tmp, get_exp(transition_matrix))
-        for i in range(len(transition_matrix[:, 0])):
+        for i in xrange(len(transition_matrix[:, 0])):
             file_tmp.writelines(["\n" + str(sum(get_exp(transition_matrix[i, :]))) + "\n"])
 
         # write insertion base call
@@ -578,7 +533,7 @@ def update_parameters(training_set, base_model, max_hp_len, b, sigma, hp_freq):
         # write match length call
         file_tmp.writelines("\n Length call (match): \n")
         write_to_file_matrix(file_tmp, get_exp(length_call_match))
-        for i in range(len(length_call_match[:, 0])):
+        for i in xrange(len(length_call_match[:, 0])):
             file_tmp.writelines(["\n" + str(sum(get_exp(length_call_match[i, :]))) + "\n"])
         file_tmp.close()
         return 0
@@ -592,16 +547,16 @@ def update_parameters(training_set, base_model, max_hp_len, b, sigma, hp_freq):
     max_hp = 0
     for pair in training_set:   # process every pair of read, reference
 
-        read = pair[0][:30]
-        reference = pair[1][:30]
+        read = pair[0][:len_string]
+        reference = pair[1][:len_string]
         # FOR TESTING! Not interesting in alignment of equal string
-        if read == reference:
-            continue
-        print counter, "\n Step:", '\n'
-        if counter == 25:
+        # if read == reference:
+        #     continue
+        print "\n Step:", counter, '\n'
+        if counter == 45:
             break
         counter += 1
-        print "Read: ", read, "\nReference:", reference
+        print "Read:     ", read, "\nReference:", reference
 
         # xi shape: [read_pos, ref_pos, prev_state, curr_state, hp_read_len, hp_ref_len]
         # gamma shape: [read_pos, ref_pos, hp_read_len, hp_ref_len, state]
@@ -660,7 +615,7 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
         """
         tmp = numpy.zeros(shape=[len(f), max_length_hp + 1], dtype=float)
         for ff in xrange(len(f)):
-            for l in range(1, max_length_hp + 1):   # l = 0 count by log-normal distribution
+            for l in xrange(1, max_length_hp + 1):   # l = 0 count by log-normal distribution
                 tmp[ff, l] = laplace.pdf(f[ff], loc=l, scale=b_scale[l])
         return tmp
 
@@ -686,14 +641,14 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
             it[0] = p_f_l[f_tmp, k_tmp] * p_k[k_tmp] / z_f[f_tmp]
             it.iternext()
         # tmp = numpy.zeros(shape=[max_length_hp + 1, len(f)], dtype=float)     # p(k | f)
-        # for k in range(1, max_length_hp + 1):
+        # for k in xrange(1, max_length_hp + 1):
         #     for ff in xrange(len(f)):
         #         tmp[k, ff] = p_f_l[ff, k] * p_k[k] / z_f[ff]
         return tmp
 
     def count_p_f_zero(sigma):
         tmp = []
-        for ff in range(len(f)):
+        for ff in xrange(len(f)):
             tmp.append(lognorm.pdf(f[ff], 1, loc=0, scale=sigma))
         return tmp
 
@@ -703,13 +658,13 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
         """
         tmp = numpy.zeros(shape=[len(f), max_length_hp + 1, max_length_hp + 1], dtype=float)     # p(f | k, l)
         tmp_zero = numpy.zeros(shape=[len(f), max_length_hp + 1], dtype=float)     # p(f | k, 0)
-        for k in range(1, max_length_hp + 1):
-            tst = [p_k_f[k, i] * p_f_zero[i] for i in range(len(f))]
+        for k in xrange(1, max_length_hp + 1):
+            tst = [p_k_f[k, i] * p_f_zero[i] for i in xrange(len(f))]
             if sum(tst) != 0:
                 tst = tst / sum(tst)
             tmp_zero[:, k] = tst[:]
-            for l in range(1, max_length_hp + 1):
-                tst = [p_k_f[k, i]*p_f_l[i, l] for i in range(len(f))]
+            for l in xrange(1, max_length_hp + 1):
+                tst = [p_k_f[k, i]*p_f_l[i, l] for i in xrange(len(f))]
                 if sum(tst) != 0:
                     tst = tst / sum(tst)
                 tmp[:, k, l] = tst[:]  # p(k|f) * p(f|l)
@@ -718,7 +673,7 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
     def prod(x, y):
             assert (len(x) == len(y)), "773"
             res = 0
-            for i in range(len(x)):
+            for i in xrange(len(x)):
                 res += x[i] * y[i]
             return res
 
@@ -731,17 +686,17 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
 
         tmp_b = [0] * (max_length_hp + 1)
         # count b for l > 0
-        for l in range(1, max_length_hp + 1):
+        for l in xrange(1, max_length_hp + 1):
             numerator = 0
             denominator = 0
-            for k in range(1, max_length_hp + 1):
+            for k in xrange(1, max_length_hp + 1):
                 tmp_num = [p_f_k_l[ff, k, l] * abs(f[ff] - l) for ff in xrange(len(f))]
                 numerator = numerator + length_call_matrix[l, k] * sum(tmp_num)
                 denominator = denominator + sum(p_f_k_l[:, k, l]) * length_call_matrix[l, k]
             # numerator_tmp = 0
             # denominator_tmp = 0
             # for ff in xrange(len(f)):
-            #     for k in range(1, max_length_hp + 1):
+            #     for k in xrange(1, max_length_hp + 1):
             #         temp = p_f_k_l[ff, k, l]*length_call_matrix[l, k]
             #         numerator_tmp += temp * abs(f[ff] - l)
             #         denominator_tmp += temp
@@ -759,7 +714,7 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
         numerator = 0
         denominator = 0
         for ff in xrange(len(f)):
-            for k in range(max_length_hp):
+            for k in xrange(max_length_hp):
                 element = p_f_k_zero[ff, k] * length_call_matrix[0, k]
                 denominator += element
                 numerator += (element * eln(f[ff])**2)
@@ -784,7 +739,7 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
             :return: counted function
             """
             num = laplace.pdf(x, loc=l, scale=scale[l]) * laplace.pdf(x, loc=k, scale=scale[k]) * pk[k]
-            denom = sum([pk[i] * laplace.pdf(x, loc=i, scale=scale[i]) for i in range(1, max_hp_length + 1)])
+            denom = sum([pk[i] * laplace.pdf(x, loc=i, scale=scale[i]) for i in xrange(1, max_hp_length + 1)])
             return num/denom
 
         def normalize(item, max_len):
@@ -794,12 +749,12 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
             :param max_len: number of rows/columns
             :return:
             """
-            for i in range(max_len):
+            for i in xrange(max_len):
                 item[i, ] = item[i, ] / sum(item[i, ])
             return item
 
-        for l in range(1, max_hp_length + 1):
-            for k in range(1, max_hp_length + 1):
+        for l in xrange(1, max_hp_length + 1):
+            for k in xrange(1, max_hp_length + 1):
                 result[l - 1, k - 1] = quad(lcall, 0, max_hp_length, args=(l, k))[0]
         result = normalize(result, max_hp_length)
         return result
@@ -816,10 +771,10 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
 
         def lcall(x, k):
             num = lognorm.pdf(x, 1, loc=0, scale=sigma_scale) * laplace.pdf(x, loc=k, scale=b_scale[k]) * pk[k]
-            denom = sum([pk[i] * laplace.pdf(x, loc=i, scale=b_scale[i]) for i in range(1, max_hp_length + 1)])
+            denom = sum([pk[i] * laplace.pdf(x, loc=i, scale=b_scale[i]) for i in xrange(1, max_hp_length + 1)])
             return num/denom
 
-        for k in range(1, max_hp_length + 1):
+        for k in xrange(1, max_hp_length + 1):
             result[k - 1] = quad(lcall, 0, max_hp_length, args=(k))[0]
         result = result / sum(result)
         return result
@@ -830,26 +785,26 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
         :return:
         """
         file_tmp = open("p_f_k_l.txt", 'w')
-        for ff in range(0, len(f), len(f)/max_length_hp):
+        for ff in xrange(0, len(f), len(f)/max_length_hp):
             file_tmp.writelines("\n p(f | k, l), f = " + str(f[ff]) + '\n')
             write_to_file_matrix(file_tmp, p_f_k_l[ff, :, :])
 
         file_tmp.close()
 
         file_tmp = open("update_parameters.txt", 'w')
-        for i in range(0, len(f), len(f)/max_length_hp):
+        for i in xrange(0, len(f), len(f)/max_length_hp):
             file_tmp.writelines("\n p(f | k, l), f = " + str(f[i]) + '\n')
             write_to_file_matrix(file_tmp, p_f_k_l[i, :, :])
 
         file_tmp.writelines('\n')
 
         file_tmp.writelines("\n p(f | k, 0)\n")
-        for i in range(0, len(f), len(f)/max_length_hp):
+        for i in xrange(0, len(f), len(f)/max_length_hp):
             write_to_file_array(file_tmp, p_f_k_zero[i, :])
 
         file_tmp.writelines('\n')
         file_tmp.writelines("\n p(f | l)\n")
-        for i in range(0, len(f), len(f)/max_length_hp):
+        for i in xrange(0, len(f), len(f)/max_length_hp):
             write_to_file_array(file_tmp, p_f_l[i, :])
 
         file_tmp.writelines('\n')
@@ -858,11 +813,11 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
 
         file_tmp.writelines('\n')
         file_tmp.writelines("\n p(k | f)\n")
-        write_to_file_matrix(file_tmp, numpy.asarray([p_k_f[:, j] for j in range(0, len(f), len(f)/max_length_hp)]))
+        write_to_file_matrix(file_tmp, numpy.asarray([p_k_f[:, j] for j in xrange(0, len(f), len(f)/max_length_hp)]))
 
         file_tmp.writelines('\n')
         file_tmp.writelines("\n p(f | 0)\n")
-        write_to_file_array(file_tmp, numpy.asarray([p_f_zero[i] for i in range(0, len(f), len(f)/max_length_hp)]))
+        write_to_file_array(file_tmp, numpy.asarray([p_f_zero[i] for i in xrange(0, len(f), len(f)/max_length_hp)]))
         file_tmp.close()
 
     p_f_l = count_p_f_l(b)     # p(f | l)
@@ -874,7 +829,7 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
 
     new_b = count_b()
 
-    for i in range(len(new_b)):
+    for i in xrange(len(new_b)):
         if math.isnan(new_b[i]):
             new_b[i] = new_b[i - 1] + (new_b[i - 1] - new_b[i - 2])/2.0
 
@@ -883,12 +838,3 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
     length_call_match = count_length_call_match(max_length_hp, new_b, p_k)
     length_call_insertion = count_length_insertion(max_length_hp, new_sigma, new_b, p_k)
     return get_eln(length_call_match), get_eln(length_call_insertion), new_b, new_sigma
-
-
-#     read = "GCGTTTGGCGTCGAACCCAATTCCCGCCTCATTGGAAAACATACTGCGCCCAAATGACGTGGGGAAGTTGCCCGATATTCATTACG"
-#     reference = "GCGTTTGGCGTCGAACCCATTCCCGCCTCATTGGAAAACATACTGCGCTGAAAACCGTTAGTAATCGCCTGGCTTAAGGTA"
-
-#
-
-
-# main()

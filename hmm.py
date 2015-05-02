@@ -9,6 +9,17 @@ log_product = addmath.log_product
 iter_plog = addmath.iter_plog
 eexp = addmath.eexp
 
+def hp_print(a):
+    """
+    Print hp array
+    """
+    s = ''
+    for item in a:
+        s += "(" + str(item.base) + "," + str(item.length) + ") "
+    # s += '\n'
+    return s
+
+
 class homopolymer:
     """
     homopolymer = (base, length).
@@ -137,20 +148,20 @@ class HmmRecord:
         :return: probability that state 'state' emits g with given h
         """
         if state == 'Begin':
-            return 1
+            return 0
         if state == 'Deletion':
             if g.base != '-' or h.base == '-':   # if it is not deletion
-                return 0
-            return 1
+                return float("-Inf")
+            return 0
         if state == 'Match':
             if h.base != g.base or h.base == '-' or g.base == '-':    # if it isn't match
-                return 0
+                return float("-Inf")
             # [g.length - 1] - count from 0
             # return self__length_call_match[h.base][h.length][g.length - 1]
             return self.__length_call_match[h.length - 1][g.length - 1]
         if state == 'Insertion':
             if h.base != '-' or g.base == '-':
-                return 0
+                return float("-Inf")
             # [g.length - 1] - count from 0
             # return (self.__insert_base_call[self.bases.index(g.base)] *
             #      self.__length_call_insert[g.base][g.length - 1])
@@ -208,14 +219,14 @@ class HmmModel:
         residue = [10., 5., 1., 0.5, 10**(-2), 10**(-3), 10**(-4), 10**(-5), 10**(-6), 10**(-7), 10**(-8), 10**(-9),
                    10**(-10), 10**(-11),  10**(-12)]
         length_call_matrix = []
-        for i in range(15):
+        for i in xrange(15):
             row = [0] * 15
             row[i] = 100
-            for j in range(i):
+            for j in xrange(i):
                 row[j] = residue[i - j - 1]
-            for j in range(i + 1, 15):
+            for j in xrange(i + 1, 15):
                 row[j] = residue[j - i - 1]
-            rowFinal = [row[i]/sum(row) for i in range(15)]
+            rowFinal = [row[i]/sum(row) for i in xrange(15)]
             length_call_matrix.append(rowFinal)
         #  length_call = {'A': length_call_matrix, 'C': length_call_matrix, 'G': length_call_matrix,
         #                'T': length_call_matrix}
@@ -226,8 +237,8 @@ class HmmModel:
         """
         :return: vector of probabilities of length call in case insertion
         """
-        calls = range(15, 1, -1)
-        insertion_calls_probabilities = [calls[i]/float(sum(calls)) for i in range(14)]
+        calls = xrange(15, 1, -1)
+        insertion_calls_probabilities = [calls[i]/float(sum(calls)) for i in xrange(14)]
         # insertion_calls = {'A': insertion_calls_probabilities, 'C': insertion_calls_probabilities,
         #                  'G': insertion_calls_probabilities, 'T': insertion_calls_probabilities}
         insertion_calls = insertion_calls_probabilities
@@ -246,19 +257,23 @@ class HmmModel:
             # print re.split('\t', lines.rstrip('\n'))
             information = re.split('\t', lines.rstrip('\n'))
             if information[0] == '-:':
-                base_call = [float(information[i]) for i in range(1, len(information))]
+                base_call = [float(information[i]) for i in xrange(1, len(information))]
             elif information[0] == 'Begin':
-                transition_probabilities[self.states.index('Begin')] = [float(information[i]) for i in range(1, len(information))]
+                transition_probabilities[self.states.index('Begin')] = [float(information[i]) for i in xrange(1, len(information))]
             elif information[0] == 'Match':
-                transition_probabilities[self.states.index('Match')] = [float(information[i]) for i in range(1, len(information))]
+                transition_probabilities[self.states.index('Match')] = [float(information[i]) for i in xrange(1, len(information))]
             elif information[0] == 'Insertion':
-                transition_probabilities[self.states.index('Insertion')] = [float(information[i]) for i in range(1, len(information))]
+                transition_probabilities[self.states.index('Insertion')] = [float(information[i]) for i in xrange(1, len(information))]
             elif information[0] == 'Deletion':
-                transition_probabilities[self.states.index('Deletion')] = [float(information[i]) for i in range(1, len(information))]
+                transition_probabilities[self.states.index('Deletion')] = [float(information[i]) for i in xrange(1, len(information))]
             elif information[0] == 'End':
-                transition_probabilities[self.states.index('End')] = [float(information[i]) for i in range(1, len(information))]
+                transition_probabilities[self.states.index('End')] = [float(information[i]) for i in xrange(1, len(information))]
+        element_zero = HmmRecord(base_call, length_call_test, length_call_insert_test, transition_probabilities)
+        transition_probabilities[self.states.index('Begin')] = [0, 0, 0, 0, 0]
         element = HmmRecord(base_call, length_call_test, length_call_insert_test, transition_probabilities)
         self.HMM = [element]*size
+        self.HMM[0] = element_zero
+
         return 0
 
     def __init__(self, *args):
@@ -277,7 +292,7 @@ class HmmModel:
             base_call, len_call_match, len_call_ins, trans_prob = args
             if isinstance(trans_prob, list):
                 self.HMM = []
-                for i in range(len(trans_prob)):
+                for i in xrange(len(trans_prob)):
                     element = HmmRecord(base_call[i], len_call_match[i], len_call_ins[i], trans_prob[i])
                     self.HMM.append(element)
             else:
@@ -343,7 +358,7 @@ def nucleotide_to_homopolymer(sequence):
     result = []
     base = sequence[0]
     length = 1
-    for i in range(1, len(sequence)):
+    for i in xrange(1, len(sequence)):
         if sequence[i] == base:
             length += 1
         else:

@@ -39,7 +39,7 @@ def form_train_set(len_train_set):
                 alignments.append((g, (i, i + l)))   # (genomic offset, (alignment.start, alignment.end))
                 reference_edit += reference[g: g + l]
                 read_edit += read[i:i + l]
-                quality_list.extend([ord(quality_string[k]) - 33 for k in range(i, i + l)])
+                quality_list.extend([ord(quality_string[k]) - 33 for k in xrange(i, i + l)])
                 i += l
                 g += l
             elif t == 'D':  # skip 'l' number of coordinates in reference
@@ -49,7 +49,7 @@ def form_train_set(len_train_set):
             elif t == 'I':  # insertion of 'l' length
                 # insertions.append((i, i + l))
                 read_edit += read[i:i + l]
-                quality_list.extend([ord(quality_string[k]) for k in range(i, i + l)])
+                quality_list.extend([ord(quality_string[k]) for k in xrange(i, i + l)])
                 i += l
             elif t == 'N': ## skipped region from the reference
                 pass
@@ -76,7 +76,7 @@ def form_train_set(len_train_set):
         c_1 = 0.0471694
         c_2 = 1.23072
         res = [0]
-        for l in range(max_len):
+        for l in xrange(max_len):
             res += [c_0 + c_1 * l**c_2]
         return res
 
@@ -102,7 +102,7 @@ def form_train_set(len_train_set):
         curr_base = sequence[0]
         max_count = 0
         curr_count = 1
-        for i in range(1, len(sequence)):
+        for i in xrange(1, len(sequence)):
             if sequence[i] == curr_base:
                 curr_count += 1
             else:
@@ -119,7 +119,7 @@ def form_train_set(len_train_set):
     #     count = 0
     #     curr_count = 1
     #     curr_base = sequence[0]
-    #     for i in range(1, len(sequence)):
+    #     for i in xrange(1, len(sequence)):
     #         if sequence[i] == curr_base:
     #             curr_count += 1
     #         else:
@@ -188,8 +188,8 @@ def form_train_set(len_train_set):
                 write_set(read, fasta_string[pos:pos + end], sam_fields[10], tr_set)
                 training_set.append([read, reference, sam_fields[10]])
                 i += 1
-                # temp = [count_lengthest(read_seq, i) for i in range(16)]
-                # count_lengthest_read = [0] + [count_lengthest_read[i] + temp[i] for i in range(1, 16)]
+                # temp = [count_lengthest(read_seq, i) for i in xrange(16)]
+                # count_lengthest_read = [0] + [count_lengthest_read[i] + temp[i] for i in xrange(1, 16)]
         else:
             continue
     tr_set.close()
@@ -197,15 +197,15 @@ def form_train_set(len_train_set):
     return training_set, observed_freq['A'][:], b_scale, max_hp_ref
 
 
-def count_likelihood(train_set, model):
+def count_likelihood(train_set, model, cur_len):
     result = 0
     for pair in train_set:
-        path, probability = vit.viterbi_path(pair[0][:30], pair[1][:30], model)
+        path, probability = vit.viterbi_path(pair[0][:cur_len], pair[1][:cur_len], model)
         result += probability
     return result
 
 
-def training(train_set):
+def training():
     likelihood = []
     model = hmm.HmmModel()  # initial
     train_set, freq, b, max_ref = form_train_set()
@@ -231,20 +231,20 @@ def main():
     :return:
     """
     hmm_test = hmm.HmmModel()
+    cur_len = 20
 
     train_set, freq, b, max_hp_ref = form_train_set(100)
-    print freq
     print "train_set formed"
     print "Max length from reference: ", max_hp_ref
 
-    print count_likelihood(train_set, hmm_test)
+    print "Likelihood: ", count_likelihood(train_set, hmm_test, cur_len)
 
-    ins_base, len_match, len_ins, trans = em.update_parameters(train_set, hmm_test, max_hp_ref, b, 4, freq)
+    ins_base, len_match, len_ins, trans = em.update_parameters(train_set, hmm_test, max_hp_ref, b, 4, freq, cur_len)
+
     trans[3, ] = em.get_eln([0.2999, 0.3, 0.4, 0, 0.0001])
     trans[4, ] = em.get_eln([0.0, 0.0, 0.0, 0.0, 1.0])
     new_model = hmm.HmmModel(ins_base, len_match, len_ins, trans)
-    print "Model created"
-    print count_likelihood(train_set, new_model)
+    print "Model created, ", "Likelihood: ", count_likelihood(train_set, new_model, cur_len)
     # it returns ins_base_call, length_call_match, length_call_ins, transition_matrix
 
     return 0

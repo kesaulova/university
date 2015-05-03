@@ -1,6 +1,7 @@
 from math import log, exp
 import math
 import numpy
+import line_profiler
 
 def discrete_distribution(probabilities):
     """
@@ -94,6 +95,7 @@ def iter_plog(l):
     return acc
 
 
+@profile
 def by_iter_slog(it):
     """
     Compute log(\sum\lim{i}(x_i)), when we know log(x_i)

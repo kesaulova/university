@@ -530,8 +530,10 @@ def update_parameters(training_set, base_model, max_hp_len, b, sigma, hp_freq, l
     max_hp = 0
     for pair in training_set:   # process every pair of read, reference
 
-        read = pair[0][:len_string]
-        reference = pair[1][:len_string]
+        # read = pair[0][:len_string]
+        # reference = pair[1][:len_string]
+        read = pair[0]
+        reference = pair[1]
         # FOR TESTING! Not interesting in alignment of equal string
         if read == reference:
             continue
@@ -549,21 +551,26 @@ def update_parameters(training_set, base_model, max_hp_len, b, sigma, hp_freq, l
         max_hp_ref = max(len_max_hp_end(reference))
         if max_hp < max_hp_ref:
             max_hp = max_hp_ref
+        print gamma.shape
+        print gamma.max(), numpy.exp(gamma.max()), numpy.log(numpy.exp(gamma.max()))
+        print xi.max(), numpy.exp(xi.max())
+        print "Updating parameters"
         # update T (transition matrix), T(pi, pi')
         for previous in states:
             for current in states:
                 transition_matrix[previous, current] = by_iter_slog(numpy.nditer(xi[:, :, previous, current, :, :]))
-
+        print "Transition matrix done"
         # update L(k,l) - occurrences of length calling
         for k in xrange(max_hp_read + 1):     # maximum length of HP. All of not-useful will be -inf
             for l in xrange(max_hp_ref + 1):
                 # print l, k, "Shape: ", length_call_matrix.shape
                 length_call_matrix[l, k] = by_iter_slog(numpy.nditer(gamma[:, :, k, l, :]))
-
+        print "Length call done"
         # update length call for insertion. gamma[i + 1...], because here count read from 0, in gamma from 1
         for i in xrange(len(read)):
             ins_base_call[bases[read[i]]] = log_sum(ins_base_call[bases[read[i]]],
                                                     by_iter_slog(numpy.nditer(gamma[i + 1, :, 1:, 0, 2])))
+        print "Information updated"
         gamma = xi = None
 
 

@@ -659,7 +659,7 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
                 tmp_num = [p_f_k_l[ff, k, l] * abs(f[ff] - l) for ff in xrange(len(f))]
                 numerator = numerator + length_call_matrix[l, k] * sum(tmp_num)
                 denominator = denominator + sum(p_f_k_l[:, k, l]) * length_call_matrix[l, k]
-            tmp_b[l] = numerator / denominator
+            tmp_b[l] = numerator / denominator  # Warning!!!
         return tmp_b
 
     def count_sigma():
@@ -676,6 +676,7 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
                 num += (element * eln(f[ff])**2)
         return math.sqrt(num / denom)
 
+    @profile
     def count_length_call_match(max_hp_length, scale, pk):
         """
         Count length-call matrix, based on updated scale parameter of laplace distribution

@@ -1,0 +1,569 @@
+Timer unit: 1e-06 s
+
+Total time: 54.8397 s
+File: addmath.py
+Function: by_iter_slog at line 98
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+    98                                           @profile
+    99                                           def by_iter_slog(it):
+   100                                               """
+   101                                               Compute log(\sum\lim{i}(x_i)), when we know log(x_i)
+   102                                               :param it: iter by some structure
+   103                                               :return: logarifm of sum of elements
+   104                                               """
+   105     69693        74705      1.1      0.1      acc = next(it)
+   106  10909965      8660243      0.8     15.8      for snd in it:
+   107  10840272     46076147      4.3     84.0          acc = log_sum(acc, snd)
+   108     69693        28582      0.4      0.1      return acc
+
+Total time: 14.5296 s
+File: slow_code.py
+Function: count_forward at line 116
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+   116                                           @profile
+   117                                           def count_forward(read_tmp, reference_tmp, model):
+   118                                               """
+   119                                               Count forward variable F(i,j,k,l,pi) - is the probability summarizing over all possible alignments ending at
+   120                                               the hidden state pi between the prefixes read[1:i] and reference[1:j] in which a k bp homopolymer at the
+   121                                               read position i is aligned to a l bp homopolymer in the reference position j.
+   122                                               :param read_tmp: read, nucleotide sequence
+   123                                               :param reference_tmp: reference, nucleotide sequence
+   124                                               :param model: HMM model
+   125                                               :return: array of forward variables
+   126                                               """
+   127                                               # first create homopolymer sequence from reference
+   128        20         1623     81.2      0.0      reference = [homopolymer()] + nucl_to_hp(reference_tmp)
+   129        20           65      3.2      0.0      read = ' ' + read_tmp
+   130        20           67      3.4      0.0      states = {0: 'Match', 1: 'Deletion', 2: 'Insertion', 3: 'Begin', 4: 'End'}
+   131        20           61      3.0      0.0      states_without_ins = {0: 'Match', 1: 'Deletion', 3: 'Begin', 4: 'End'}
+   132        20           60      3.0      0.0      states_without_match = {1: 'Deletion', 2: 'Insertion', 3: 'Begin', 4: 'End'}
+   133                                           
+   134        20          821     41.0      0.0      max_hp_read = [0] + len_max_hp_end(read_tmp) + [0]
+   135                                           
+   136        20          184      9.2      0.0      forward = float("-inf")*numpy.ones(shape=[len(read), len(reference), max(max_hp_read) + 1,
+   137        20         5963    298.1      0.0                                                max(len_max_hp_end(reference_tmp)) + 1, len(states)], dtype=float)
+   138        20          689     34.5      0.0      forward_position = float("-inf")*numpy.ones(shape=[len(read), len(reference), len(states)], dtype=float)
+   139        20          132      6.6      0.0      forward_position[0][0][3] = 0
+   140                                           
+   141        20           87      4.3      0.0      def process_match(i, j, k, hp_input, hp_output):
+   142                                                   """
+   143                                                   Count F(i, j, k, l, Match).
+   144                                                   We must check that there is no transitions ins-match, if read[i] == read[i - k].
+   145                                                   :param i: read position
+   146                                                   :param j: reference position
+   147                                                   :param k: length of HP, ended at position i
+   148                                                   :param l: length of HP, ended at position j
+   149                                                   :param hp_input: HP in ref
+   150                                                   :param hp_output: HP in read
+   151                                                   :return:
+   152                                                   """
+   153                                           
+   154                                                   if read[i] == read[i - k]:
+   155                                                       possible_prev_states = states_without_ins
+   156                                                   else:
+   157                                                       possible_prev_states = states
+   158                                           
+   159                                                   result = float("-inf")
+   160                                                   for prev_state in possible_prev_states:
+   161                                                       transition = model.HMM[j - 1].transition(states[prev_state], 'Match')
+   162                                                       emission = model.HMM[j].emission(hp_input, hp_output, 'Match')
+   163                                                       result = log_sum(result, iter_plog([forward_position[i - k, j - 1, prev_state], transition, emission]))
+   164                                                   forward[i, j, k, reference[j].length, 0] = result
+   165                                                   return 0
+   166                                           
+   167        20           59      3.0      0.0      def process_insertion(i, j, k, hp_output):
+   168                                                   """
+   169                                                   Count F(i, j, k, l, Insertion).
+   170                                                   We must check that there is no transitions match-ins, if read[i] == read[i - k].
+   171                                                   :param i: read position
+   172                                                   :param j: reference position
+   173                                                   :param k: length of HP, ended at position i
+   174                                                   :param l: length of HP, ended at position j, = 0
+   175                                                   :param hp_output: HP in read
+   176                                                   :return:
+   177                                                   """
+   178                                                   if read[i] == read[i - k]:
+   179                                                       possible_prev_states = states_without_match
+   180                                                   else:
+   181                                                       possible_prev_states = states
+   182                                                   result = float("-inf")
+   183                                                   for prev_state in possible_prev_states:
+   184                                                       transition = model.HMM[j].transition(states[prev_state], 'Insertion')
+   185                                                       emission = model.HMM[j].emission(homopolymer(), hp_output, 'Insertion')
+   186                                                       result = log_sum(result, iter_plog([forward_position[i - k, j, prev_state], transition, emission]))
+   187                                                   forward[i, j, k, 0, 2] = result
+   188                                                   return 0
+   189                                           
+   190        20           57      2.9      0.0      def process_deletion(i, j):
+   191                                                   """
+   192                                                   Count F(i, j, k, l, Deletion).
+   193                                                   :param i: read position
+   194                                                   :param j: reference position
+   195                                                   :param k: length of HP, ended at position i, = 0
+   196                                                   :param l: length of HP, ended at position j
+   197                                                   :param hp_input: HP in reference
+   198                                                   :return:
+   199                                                   """
+   200                                                   result = float("-inf")
+   201                                                   for prev_state in states:
+   202                                                       transition = model.HMM[j - 1].transition(states[prev_state], 'Deletion')
+   203                                                       result = log_sum(result, iter_plog([forward_position[i, j - 1, prev_state], transition]))
+   204                                                   forward[i, j, 0, reference[j].length, 1] = result
+   205                                                   return 0
+   206                                           
+   207                                               # start from 0, because there can be insertions and deletions at the begining
+   208       640         1795      2.8      0.0      for i in xrange(len(read)):
+   209                                           
+   210     14260        40196      2.8      0.3          for j in xrange(len(reference)):
+   211                                           
+   212     13640        40237      2.9      0.3              if i == j == 0:     # Can't align two empty hp
+   213        20           54      2.7      0.0                  continue
+   214                                           
+   215     45695       144122      3.2      1.0              for k in range(max_hp_read[i] + 1):
+   216                                           
+   217     96225       296007      3.1      2.0                  for l in range(2):
+   218                                           
+   219     64150       176449      2.8      1.2                      if l == 0 and k == 0:
+   220     13620        35904      2.6      0.2                          continue
+   221     50530       133432      2.6      0.9                      elif l == 0:
+   222     18455      2346740    127.2     16.2                          process_insertion(i, j, k, homopolymer(read[i], k))
+   223     32075        85308      2.7      0.6                      elif k == 0:
+   224     13620      1126473     82.7      7.8                          process_deletion(i, j)
+   225     18455        57727      3.1      0.4                      elif read[i] == reference[j].base:
+   226      4801       528725    110.1      3.6                          process_match(i, j, k, reference[j], homopolymer(read[i], k))
+   227                                           
+   228                                                       # fill F(i,j,pi)
+   229     81720       236692      2.9      1.6              for state in states:
+   230     68100      9268510    136.1     63.8                  forward_position[i][j][state] = by_iter_slog(numpy.nditer(forward[i, j, :, :, state]))
+   231                                           
+   232        20         1291     64.5      0.0      check = by_iter_slog(numpy.nditer(forward_position[len(read_tmp), len(reference) - 1, :]))
+   233        20           59      3.0      0.0      return forward, check
+
+Total time: 4.09774 s
+File: slow_code.py
+Function: count_backward at line 235
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+   235                                           @profile
+   236                                           def count_backward(read_tmp, reference_tmp, model):
+   237                                               """
+   238                                               Count backward variable B(i, j, k, l, pi) - probability of all possible alignments of the
+   239                                               suffixes r[i + 1: n] and t[j + 1: m], starting at the hidden state pi , where a k bp homopolymer at the
+   240                                               read position i is aligned to a l bp homopolymer at the reference position j.
+   241                                               We can count B(i, j, ..) and then fill all variables.
+   242                                               :param read_tmp:
+   243                                               :param reference_tmp:
+   244                                               :param model:
+   245                                               :return: ndarray
+   246                                               """
+   247        20           89      4.5      0.0      read = ' ' + read_tmp
+   248        20         2011    100.5      0.0      reference = [homopolymer()] + nucl_to_hp(reference_tmp)
+   249        20           73      3.6      0.0      len_ref = len(reference) - 1  # true length
+   250        20           61      3.0      0.0      len_read = len(read) - 1  # true length
+   251                                               # position and create len_sequence to remember true length
+   252        20           70      3.5      0.0      states = {0: 'Match', 1: 'Deletion', 2: 'Insertion', 3: 'Begin', 4: 'End'}
+   253        20           69      3.5      0.0      state_index = {'Match': 0, 'Deletion': 1, 'Insertion': 2, 'Begin': 3, 'End': 4}
+   254        20          907     45.4      0.0      max_hp_read_s = [0] + len_max_hp_start(read_tmp)  # because read start from ' '
+   255                                           
+   256                                               # information about the lengthiest HP, ended at this position
+   257        20          841     42.0      0.0      max_hp_read_e = [0] + len_max_hp_end(read_tmp)  # because read start from ' '
+   258        20          824     41.2      0.0      max_hp_ref_e = [0] + len_max_hp_end(reference_tmp)  # because reference start from ' '
+   259                                           
+   260        20          159      8.0      0.0      backward = float("-inf")*numpy.ones(shape=[len_read + 1, len_ref + 1, max(max_hp_read_e) + 1,
+   261        20         4857    242.8      0.1                                                 max(max_hp_ref_e) + 1,  len(states)], dtype=float)
+   262                                               # initialize
+   263                                               # B(i, m, 0, 1, Deletion)
+   264        20          169      8.4      0.0      backward[len_read, len_ref, 0, reference[len_ref].length, state_index['Deletion']] = 0
+   265                                               # B(n, m, k, 0, Insertion)
+   266        20          303     15.2      0.0      backward[len_read, len_ref, 1: length_last_hp(read) + 1, 0, state_index['Insertion']] = 0
+   267                                           
+   268                                               # B(n, m, k, 1, Match)
+   269        20          174      8.7      0.0      backward[len_read, len_ref, 1: length_last_hp(read) + 1, reference[len_ref].length, state_index['Match']] = 0
+   270                                           
+   271        20           83      4.2      0.0      def process_match(i, j):
+   272                                                   """
+   273                                                   Count multiply of probability of emission and corresponding backward variable.
+   274                                                   :param i: read position
+   275                                                   :param j: reference position
+   276                                                   :return:
+   277                                                   """
+   278                                                   hp_len = max_hp_read_s[i + 1]
+   279                                                   read_base = read[i + 1]
+   280                                                   hp_input = reference[j + 1]
+   281                                                   st_index = state_index['Match']
+   282                                                   emiss = [model.HMM[j + 1].emission(hp_input, homopolymer(read_base, tt), 'Match') for tt in xrange(1, hp_len + 1)]
+   283                                                   bck = numpy.array([backward[i + tt, j + 1, tt, reference[j + 1].length, st_index] for tt in xrange(1, hp_len + 1)])
+   284                                                   result = emiss + bck
+   285                                                   if len(result) == 1:
+   286                                                       return result[0]
+   287                                                   else:
+   288                                                       return iter_slog(result)
+   289                                           
+   290        20           64      3.2      0.0      def process_deletion(i, j):
+   291                                                   """
+   292                                                   Count multiply of probability of emission and corresponding backward variable. In deletion case, emission
+   293                                                   probability = 1
+   294                                                   :param i: read position
+   295                                                   :param j: reference position
+   296                                                   """
+   297                                                   return backward[i, j + 1, 0, reference[j + 1].length, state_index['Deletion']]
+   298                                           
+   299        20           60      3.0      0.0      def process_insertion(i, j):
+   300                                                   """
+   301                                                   Count multiply of probability of emission and corresponding backward variable.
+   302                                                   :param i: read position
+   303                                                   :param j: reference position
+   304                                                   """
+   305                                                   st_index = state_index['Insertion']
+   306                                                   hp_len = max_hp_read_s[i + 1]
+   307                                                   read_base = read[i + 1]
+   308                                                   hp_input = homopolymer()
+   309                                                   emiss = [model.HMM[j].emission(hp_input, homopolymer(read_base, tt), 'Insertion') for tt in xrange(1, hp_len + 1)]
+   310                                                   bck = numpy.array([backward[i + tt, j, tt, 0, st_index] for tt in xrange(1, hp_len + 1)])
+   311                                                   result = emiss + bck
+   312                                                   if len(result) == 1:
+   313                                                       return result[0]
+   314                                                   else:
+   315                                                       return iter_slog(result)
+   316                                           
+   317       640         1947      3.0      0.0      for i in xrange(len_read, -1, -1):  # read position
+   318     14260        42167      3.0      1.0          for j in xrange(len_ref, -1, -1):     # reference position
+   319     13640        40724      3.0      1.0              if j == len_ref and i == len_read:
+   320        20           56      2.8      0.0                  continue
+   321                                           
+   322                                                       # First count \sum\limits{i,j} p(beta_(i + di)|alpha_(j + dj), pi')*p(k|l, pi')*B(i + di, j + dj, k, pi').
+   323                                                       # It is probability of suffix.
+   324                                                       # It will be vector of length 3. Then, for each state, we create vector of transition probabilities,
+   325                                                       # element-wise multiply them and then get sum.
+   326     13620       108476      8.0      2.6              part_two = numpy.array([(-1)*numpy.inf] * len(states))
+   327     13620        52468      3.9      1.3              if j != len_ref and i != len_read and read[i + 1] == reference[j + 1].base:
+   328      3400       130116     38.3      3.2                  part_two[0] = process_match(i, j)
+   329     13620        41992      3.1      1.0              if j != len_ref:
+   330     13020        70649      5.4      1.7                  part_two[1] = process_deletion(i, j)
+   331     13620        41484      3.0      1.0              if i != len_read:
+   332     13200       544924     41.3     13.3                  part_two[2] = process_insertion(i, j)
+   333                                           
+   334     13620        45511      3.3      1.1              if i != 0 or j != 0:
+   335                                                           # Count B(i, j, k, l, Match)
+   336     13600        47532      3.5      1.2                  if read[i] == reference[j].base:
+   337     20352       138501      6.8      3.4                      trans_prob = [model.HMM[j].transition('Match', states[k]) for k in xrange(len(states))]
+   338      3392        11634      3.4      0.3                      if i != len_read and read[i] == read[i + 1]:
+   339       949         4119      4.3      0.1                          trans_prob[2] = float("-inf")
+   340      3392       143224     42.2      3.5                      value = iter_slog(trans_prob + part_two)
+   341      8183        29567      3.6      0.7                      for k in xrange(1, max_hp_read_e[i] + 1):
+   342      4791        19135      4.0      0.5                          backward[i, j, k, reference[j].length, state_index['Match']] = value
+   343                                           
+   344                                                           # Count B(i, j, k, l, Deletion)
+   345     81600       556316      6.8     13.6                  trans_prob = [model.HMM[j].transition('Deletion', states[k]) for k in xrange(len(states))]
+   346     13600       576708     42.4     14.1                  value = iter_slog(trans_prob + part_two)
+   347     13600        60969      4.5      1.5                  backward[i, j, 0,  reference[j].length, state_index['Deletion']] = value
+   348                                           
+   349                                                           # Count B(i, j, k, l, Insertion)
+   350     81600       556357      6.8     13.6                  trans_prob = [model.HMM[j].transition('Insertion', states[k]) for k in xrange(len(states))]
+   351     13600        47499      3.5      1.2                  if i != len_read and read[i] == read[i + 1]:
+   352      3632        15535      4.3      0.4                      trans_prob[0] = float("-inf")
+   353     13600       571055     42.0     13.9                  value = iter_slog(trans_prob + part_two)
+   354     32029       115807      3.6      2.8                  for k in xrange(1, max_hp_read_e[i] + 1):
+   355     18429        70768      3.8      1.7                      backward[i, j, k, 0, state_index['Insertion']] = value
+   356                                           
+   357                                                       else:   # i == 0 and j == 0:     # Begin case!
+   358       120          761      6.3      0.0                  trans_prob = [model.HMM[0].transition('Begin', states[k]) for k in xrange(len(states))]
+   359        20          856     42.8      0.0                  backward[0, 0, 0, 0, 3] = iter_slog(trans_prob + part_two)
+   360        20           69      3.5      0.0      return backward, backward[0, 0, 0, 0, 3]
+
+Total time: 314.251 s
+File: slow_code.py
+Function: update_length_call_parameters at line 558
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+   558                                           @profile
+   559                                           def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, sigma):
+   560                                               """
+   561                                               :param length_call_matrix: matrix with log-probabilities
+   562                                               :param b: one-dimensional list with parameters of Laplace distrib
+   563                                               :param max_length_hp: maximum length of HP
+   564                                               :param p_k: homopolymers length array (observed from genome)
+   565                                               :param sigma: parameter of log-normal distribution
+   566                                               :return: udpated length call matrix, length cal insertion array
+   567                                               """
+   568                                               # length_call_matrix = numpy.exp(length_call_matrix_ln)
+   569         1          537    537.0      0.0      length_call_matrix = get_exp(length_call_matrix_ln)
+   570         1           14     14.0      0.0      dim = length_call_matrix.shape
+   571                                           
+   572         1           10     10.0      0.0      f_start = 0.0001
+   573         1           12     12.0      0.0      f_end = max_length_hp + 1
+   574         1           38     38.0      0.0      f = numpy.arange(f_start, f_end, 0.1)
+   575                                           
+   576         1           12     12.0      0.0      def count_p_f_l(b_scale):
+   577                                                   """
+   578                                                   Count p(f|l) - Laplace distribution, probability of flow intensity f, when input HP have length l
+   579                                                   :param b: parameter of scale
+   580                                                   :return: 0
+   581                                                   """
+   582                                                   tmp = numpy.zeros(shape=[len(f), max_length_hp + 1], dtype=float)
+   583                                                   for ff in xrange(len(f)):
+   584                                                       for l in xrange(1, max_length_hp + 1):   # l = 0 count by log-normal distribution
+   585                                                           tmp[ff, l] = laplace.pdf(f[ff], loc=l, scale=b_scale[l])
+   586                                                   return tmp
+   587                                           
+   588         1           10     10.0      0.0      def count_z_f():
+   589                                                   """
+   590                                                   for each f count Z = \sum_{k}p(f | k) * p(k)
+   591                                                   """
+   592                                                   tmp = numpy.zeros(shape=[len(f)], dtype=float)     # Coefficient of normalize Z = \sum_{k}p(f | k) * p(k)
+   593                                                   for i in xrange(len(f)):
+   594                                                       tmp[i] = sum(p_f_l[i, :]*p_k[:len(p_f_l[i, :])])
+   595                                                   return tmp
+   596                                           
+   597         1           11     11.0      0.0      def count_p_k_f():
+   598                                                   """
+   599                                                   Count p(k|f) - probability of observing HP length k from flow intensity f
+   600                                                   p(k|f) = p(f|k)*p(k)/Z
+   601                                                   """
+   602                                                   tmp = numpy.zeros(shape=[max_length_hp + 1, len(f)], dtype=float)     # p(k | f)
+   603                                                   it = numpy.nditer(tmp, flags=['multi_index'], op_flags=['writeonly'])
+   604                                                   while not it.finished:
+   605                                                       k_tmp = it.multi_index[0]
+   606                                                       f_tmp = it.multi_index[1]
+   607                                                       it[0] = p_f_l[f_tmp, k_tmp] * p_k[k_tmp] / z_f[f_tmp]
+   608                                                       it.iternext()
+   609                                                   # tmp = numpy.zeros(shape=[max_length_hp + 1, len(f)], dtype=float)     # p(k | f)
+   610                                                   # for k in xrange(1, max_length_hp + 1):
+   611                                                   #     for ff in xrange(len(f)):
+   612                                                   #         tmp[k, ff] = p_f_l[ff, k] * p_k[k] / z_f[ff]
+   613                                                   return tmp
+   614                                           
+   615         1           10     10.0      0.0      def count_p_f_zero(sigma):
+   616                                                   tmp = []
+   617                                                   for ff in xrange(len(f)):
+   618                                                       tmp.append(lognorm.pdf(f[ff], 1, loc=0, scale=sigma))
+   619                                                   return tmp
+   620                                           
+   621         1           10     10.0      0.0      def expectation_step():
+   622                                                   """
+   623                                                   Count p(f|k,l) (p_f_k_l and p_f_k_zero) (See supplementary)
+   624                                                   """
+   625                                                   tmp = numpy.zeros(shape=[len(f), max_length_hp + 1, max_length_hp + 1], dtype=float)     # p(f | k, l)
+   626                                                   tmp_zero = numpy.zeros(shape=[len(f), max_length_hp + 1], dtype=float)     # p(f | k, 0)
+   627                                                   for k in xrange(1, max_length_hp + 1):
+   628                                                       tst = [p_k_f[k, i] * p_f_zero[i] for i in xrange(len(f))]
+   629                                                       if sum(tst) != 0:
+   630                                                           tst = tst / sum(tst)
+   631                                                       tmp_zero[:, k] = tst[:]
+   632                                                       for l in xrange(1, max_length_hp + 1):
+   633                                                           tst = [p_k_f[k, i]*p_f_l[i, l] for i in xrange(len(f))]
+   634                                                           if sum(tst) != 0:
+   635                                                               tst = tst / sum(tst)
+   636                                                           tmp[:, k, l] = tst[:]  # p(k|f) * p(f|l)
+   637                                                   return tmp_zero, tmp
+   638                                           
+   639         1           10     10.0      0.0      def prod(x, y):
+   640                                                       assert (len(x) == len(y)), "773"
+   641                                                       res = 0
+   642                                                       for i in xrange(len(x)):
+   643                                                           res += x[i] * y[i]
+   644                                                       return res
+   645                                           
+   646         1           10     10.0      0.0      def count_b():
+   647                                                   """
+   648                                                   Count parameters b of Laplace distribution. l > 0.
+   649                                                   Write result in created before new_b
+   650                                                   :return: 0
+   651                                                   """
+   652                                           
+   653                                                   tmp_b = [0] * (max_length_hp + 1)
+   654                                                   # count b for l > 0
+   655                                                   for l in xrange(1, max_length_hp + 1):
+   656                                                       numerator = 0
+   657                                                       denominator = 0
+   658                                                       for k in xrange(1, max_length_hp + 1):
+   659                                                           tmp_num = [p_f_k_l[ff, k, l] * abs(f[ff] - l) for ff in xrange(len(f))]
+   660                                                           numerator = numerator + length_call_matrix[l, k] * sum(tmp_num)
+   661                                                           denominator = denominator + sum(p_f_k_l[:, k, l]) * length_call_matrix[l, k]
+   662                                                       tmp_b[l] = numerator / denominator  # Warning!!!
+   663                                                   return tmp_b
+   664                                           
+   665         1           11     11.0      0.0      def count_sigma():
+   666                                                   """
+   667                                                   Count parameter of log-normal distribution.
+   668                                                   :return: counted parameter
+   669                                                   """
+   670                                                   num = 0
+   671                                                   denom = 0
+   672                                                   for ff in xrange(len(f)):
+   673                                                       for k in xrange(max_length_hp):
+   674                                                           element = p_f_k_zero[ff, k] * length_call_matrix[0, k]
+   675                                                           denom += element
+   676                                                           num += (element * eln(f[ff])**2)
+   677                                                   return math.sqrt(num / denom)
+   678                                           
+   679         1           69     69.0      0.0      @profile
+   680                                               def count_length_call_match(max_hp_length, scale, pk):
+   681                                                   """
+   682                                                   Count length-call matrix, based on updated scale parameter of laplace distribution
+   683                                                   :param max_hp_length: maximum length of hp
+   684                                                   :param scale: updated scale parameter of Laplace distribution
+   685                                                   :return: matrix
+   686                                                   """
+   687                                                   result = numpy.zeros(shape=[max_hp_length, max_hp_length], dtype=float)
+   688                                           
+   689                                                   def lcall(x, l, k):
+   690                                                       """
+   691                                                       Integrated function
+   692                                                       :param x: f, flow intensity
+   693                                                       :param l: length of input hp
+   694                                                       :param k: length of output hp
+   695                                                       :return: counted function
+   696                                                       """
+   697                                                       num = laplace.pdf(x, loc=l, scale=scale[l]) * laplace.pdf(x, loc=k, scale=scale[k]) * pk[k]
+   698                                                       denom = sum([pk[i] * laplace.pdf(x, loc=i, scale=scale[i]) for i in xrange(1, max_hp_length + 1)])
+   699                                                       return num/denom
+   700                                           
+   701                                                   def normalize(item, max_len):
+   702                                                       """
+   703                                                       Normalize length call matrix (sum values in one row must be 1)
+   704                                                       :param item: square matrix
+   705                                                       :param max_len: number of rows/columns
+   706                                                       :return:
+   707                                                       """
+   708                                                       for i in xrange(max_len):
+   709                                                           item[i, ] = item[i, ] / sum(item[i, ])
+   710                                                       return item
+   711                                           
+   712                                                   for l in xrange(1, max_hp_length + 1):
+   713                                                       for k in xrange(1, max_hp_length + 1):
+   714                                                           result[l - 1, k - 1] = quad(lcall, 0, max_hp_length, args=(l, k))[0]
+   715                                                   result = normalize(result, max_hp_length)
+   716                                                   return result
+   717                                           
+   718         1           10     10.0      0.0      def count_length_insertion(max_hp_length, sigma_scale, b_scale, pk):
+   719                                                   """
+   720                                                   Count length call in case zero-length of input hp
+   721                                                   :param max_hp_length: maximum hp length
+   722                                                   :param sigma_scale: scale parameter for log-normal distribution
+   723                                                   :param b_scale: scale parameters (an array) for Laplace distribution
+   724                                                   :return: an array with probabilities of calling certain length from 0
+   725                                                   """
+   726                                                   result = numpy.zeros(shape=[max_hp_length], dtype=float)
+   727                                           
+   728                                                   def lcall(x, k):
+   729                                                       num = lognorm.pdf(x, 1, loc=0, scale=sigma_scale) * laplace.pdf(x, loc=k, scale=b_scale[k]) * pk[k]
+   730                                                       denom = sum([pk[i] * laplace.pdf(x, loc=i, scale=b_scale[i]) for i in xrange(1, max_hp_length + 1)])
+   731                                                       return num/denom
+   732                                           
+   733                                                   for k in xrange(1, max_hp_length + 1):
+   734                                                       result[k - 1] = quad(lcall, 0, max_hp_length, args=(k))[0]
+   735                                                   result = result / sum(result)
+   736                                                   return result
+   737                                           
+   738         1           11     11.0      0.0      def write_evr():
+   739                                                   """
+   740                                                   Write to files all counted params
+   741                                                   :return:
+   742                                                   """
+   743                                                   file_tmp = open("p_f_k_l.txt", 'w')
+   744                                                   for ff in xrange(0, len(f), len(f)/max_length_hp):
+   745                                                       file_tmp.writelines("\n p(f | k, l), f = " + str(f[ff]) + '\n')
+   746                                                       write_to_file_matrix(file_tmp, p_f_k_l[ff, :, :])
+   747                                           
+   748                                                   file_tmp.close()
+   749                                           
+   750                                                   file_tmp = open("update_parameters.txt", 'w')
+   751                                                   for i in xrange(0, len(f), len(f)/max_length_hp):
+   752                                                       file_tmp.writelines("\n p(f | k, l), f = " + str(f[i]) + '\n')
+   753                                                       write_to_file_matrix(file_tmp, p_f_k_l[i, :, :])
+   754                                           
+   755                                                   file_tmp.writelines('\n')
+   756                                           
+   757                                                   file_tmp.writelines("\n p(f | k, 0)\n")
+   758                                                   for i in xrange(0, len(f), len(f)/max_length_hp):
+   759                                                       write_to_file_array(file_tmp, p_f_k_zero[i, :])
+   760                                           
+   761                                                   file_tmp.writelines('\n')
+   762                                                   file_tmp.writelines("\n p(f | l)\n")
+   763                                                   for i in xrange(0, len(f), len(f)/max_length_hp):
+   764                                                       write_to_file_array(file_tmp, p_f_l[i, :])
+   765                                           
+   766                                                   file_tmp.writelines('\n')
+   767                                                   file_tmp.writelines("Z_f\n")
+   768                                                   write_to_file_array(file_tmp, z_f)
+   769                                           
+   770                                                   file_tmp.writelines('\n')
+   771                                                   file_tmp.writelines("\n p(k | f)\n")
+   772                                                   write_to_file_matrix(file_tmp, numpy.asarray([p_k_f[:, j] for j in xrange(0, len(f), len(f)/max_length_hp)]))
+   773                                           
+   774                                                   file_tmp.writelines('\n')
+   775                                                   file_tmp.writelines("\n p(f | 0)\n")
+   776                                                   write_to_file_array(file_tmp, numpy.asarray([p_f_zero[i] for i in xrange(0, len(f), len(f)/max_length_hp)]))
+   777                                                   file_tmp.close()
+   778                                           
+   779         1       259731 259731.0      0.1      p_f_l = count_p_f_l(b)     # p(f | l)
+   780         1         2404   2404.0      0.0      z_f = count_z_f()      # Coefficient of normalize Z = \sum_{k}p(f | k) * p(k)
+   781         1         7367   7367.0      0.0      p_k_f = count_p_k_f()       # p(k | f)
+   782         1        38736  38736.0      0.0      p_f_zero = count_p_f_zero(sigma)    # p(f | 0)
+   783         1        25689  25689.0      0.0      p_f_k_zero, p_f_k_l = expectation_step()     # p(f | k, 0),  p(f | k, l)
+   784         1        19620  19620.0      0.0      write_evr()
+   785                                           
+   786         1        28885  28885.0      0.0      new_b = count_b()
+   787                                           
+   788        12          122     10.2      0.0      for i in xrange(len(new_b)):
+   789        11          113     10.3      0.0          if math.isnan(new_b[i]):
+   790         4           48     12.0      0.0              new_b[i] = new_b[i - 1] + (new_b[i - 1] - new_b[i - 2])/2.0
+   791                                           
+   792         1         8940   8940.0      0.0      new_sigma = count_sigma()
+   793                                           
+   794         1    279816940 279816940.0     89.0      length_call_match = count_length_call_match(max_length_hp, new_b, p_k)
+   795         1     34041275 34041275.0     10.8      length_call_insertion = count_length_insertion(max_length_hp, new_sigma, new_b, p_k)
+   796         1          815    815.0      0.0      return get_eln(length_call_match), get_eln(length_call_insertion), new_b, new_sigma
+
+Total time: 279.816 s
+File: slow_code.py
+Function: count_length_call_match at line 679
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+   679                                               @profile
+   680                                               def count_length_call_match(max_hp_length, scale, pk):
+   681                                                   """
+   682                                                   Count length-call matrix, based on updated scale parameter of laplace distribution
+   683                                                   :param max_hp_length: maximum length of hp
+   684                                                   :param scale: updated scale parameter of Laplace distribution
+   685                                                   :return: matrix
+   686                                                   """
+   687         1           21     21.0      0.0          result = numpy.zeros(shape=[max_hp_length, max_hp_length], dtype=float)
+   688                                           
+   689         1            3      3.0      0.0          def lcall(x, l, k):
+   690                                                       """
+   691                                                       Integrated function
+   692                                                       :param x: f, flow intensity
+   693                                                       :param l: length of input hp
+   694                                                       :param k: length of output hp
+   695                                                       :return: counted function
+   696                                                       """
+   697                                                       num = laplace.pdf(x, loc=l, scale=scale[l]) * laplace.pdf(x, loc=k, scale=scale[k]) * pk[k]
+   698                                                       denom = sum([pk[i] * laplace.pdf(x, loc=i, scale=scale[i]) for i in xrange(1, max_hp_length + 1)])
+   699                                                       return num/denom
+   700                                           
+   701         1            2      2.0      0.0          def normalize(item, max_len):
+   702                                                       """
+   703                                                       Normalize length call matrix (sum values in one row must be 1)
+   704                                                       :param item: square matrix
+   705                                                       :param max_len: number of rows/columns
+   706                                                       :return:
+   707                                                       """
+   708                                                       for i in xrange(max_len):
+   709                                                           item[i, ] = item[i, ] / sum(item[i, ])
+   710                                                       return item
+   711                                           
+   712        11           19      1.7      0.0          for l in xrange(1, max_hp_length + 1):
+   713       110          347      3.2      0.0              for k in xrange(1, max_hp_length + 1):
+   714       100    279815721 2798157.2    100.0                  result[l - 1, k - 1] = quad(lcall, 0, max_hp_length, args=(l, k))[0]
+   715         1          119    119.0      0.0          result = normalize(result, max_hp_length)
+   716         1            2      2.0      0.0          return result
+

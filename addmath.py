@@ -53,7 +53,7 @@ def log_sum(loga, logb):
             return loga
     if logb > loga:
         loga, logb = logb, loga
-    return loga + log(1 + exp(logb - loga))
+    return loga + numpy.log1p(exp(logb - loga))
 
 
 def log_product(loga, logb):
@@ -68,30 +68,30 @@ def log_product(loga, logb):
     #    return loga + logb
     return loga + logb
 
-def iter_slog(l):
+def iter_slog(l_tmp):
     """
     Compute log(\sum\lim{i}(x_i)), when we know log(x_i)
-    :param l: list with logarifms of elements
+    :param l_tmp: list with logarifms of elements
     :return: logarifm of sum of elements
     """
-    it = iter(l)
-    acc = next(it)
-    for snd in it:
-        acc = log_sum(acc, snd)
-    return acc
+    l = numpy.array(l_tmp)
+    s = float("-Inf")
+    for item in numpy.nditer(l):
+        s = log_sum(s, item)
+    return s
 
 
-def iter_plog(l):
+def iter_plog(l_tmp):
     """
     Compute log(\product\lim{i}(x_i)), when we know log(x_i)
     :param l:  list with logarifms of elements
     :return: logarifm of sum of elements
     """
-    it = iter(l)
-    acc = next(it)
-    for snd in it:
-        acc = log_product(acc, snd)
-    return acc
+    l = numpy.array(l_tmp)
+    s = 0
+    for item in numpy.nditer(l):
+        s = log_product(s, item)
+    return s
 
 
 def by_iter_slog(it):
@@ -104,3 +104,15 @@ def by_iter_slog(it):
     for snd in it:
         acc = log_sum(acc, snd)
     return acc
+
+
+def get_eln(item):
+    """
+    Take a log from every element in array
+    :param item: array (one or more dimensional)
+    :return: ndarray with same shape, with log-elements
+    """
+    nd_item = numpy.array(item).copy()
+    for x in numpy.nditer(nd_item, op_flags=['readwrite']):
+        x[...] = eln(x)
+    return nd_item

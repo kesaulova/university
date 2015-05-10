@@ -5,7 +5,7 @@ import Viterbi as vit
 from inspect import currentframe, getframeinfo
 
 
-def form_train_set(len_train_set):
+def form_train_set(model, len_train_set):
     """
     Extract first len_train_set records from sam-file and form train_set. Also count distribulion of hp length across
     reference and scale paramter for laplace distribution.
@@ -162,6 +162,7 @@ def form_train_set(len_train_set):
     assert (max_hp_ref <= 12), "Lengthest HP in reference longer than 12! It is " + str(max_hp_ref)
 
     training_set = []
+    generated_set = []
     fasta_length = len(fasta_string)
     observed_freq = count_occurrences(fasta_string[1:], max_hp_ref)
     tr_set = open("training_set.txt", 'w')
@@ -179,6 +180,10 @@ def form_train_set(len_train_set):
         # Throw away reads, contains HP with length more than maximum hp length in reference
         if hp_max_len(read_seq) > max_hp_ref:
             continue
+        gen_read, path = hmm.create_sequence(model, 120, read_seq[:min(100, len(read_seq))])
+        if hp_max_len(gen_read) > max_hp_ref:
+            continue
+        generated_set.append([gen_read, read_seq])
 
         pos = int(sam_fields[3])
         if pos + len(read_seq) + 150 < fasta_length:
@@ -194,7 +199,8 @@ def form_train_set(len_train_set):
             continue
     tr_set.close()
     b_scale = test_count_b(max_hp_ref)
-    return training_set, observed_freq['A'][:], b_scale, max_hp_ref
+    # return training_set, observed_freq['A'][:], b_scale, max_hp_ref
+    return generated_set, observed_freq['A'][:], b_scale, max_hp_ref
 
 
 def count_likelihood(train_set, model, cur_len):
@@ -210,13 +216,14 @@ def training():
     model = hmm.HmmModel()  # initial
     train_set, freq, b, max_ref = form_train_set()
     sigma = 4
+    train_set = generated_set(model)
     print "train_set formed", getframeinfo(currentframe()).filename, getframeinfo(currentframe()).lineno
 
     while True:
         # base_call, len_call_match, len_call_ins, trans_prob
         ins_base, len_match, len_ins, trans = em.update_parameters(train_set, model, max_ref, b, sigma, freq)
-        new_model = hmm.HmmModel(ins_base, len_match, len_ins, trans)
-        curr_likelihood = count_likelihood(train_set, new_model)
+        model = hmm.HmmModel(ins_base, len_match, len_ins, trans)
+        curr_likelihood = count_likelihood(train_set, model)
         print likelihood[len(likelihood) - 1], curr_likelihood
         likelihood.append(curr_likelihood)
 
@@ -230,21 +237,24 @@ def main():
     :param model: start model
     :return:
     """
-    hmm_test = hmm.HmmModel()
-    cur_len = 20
+    hmm_model = hmm.HmmModel()
+    print "Test model created"
+    cur_len = 40
+    sigma = 4
 
-    train_set, freq, b, max_hp_ref = form_train_set(100)
+    train_set, freq, b, max_hp_ref = form_train_set(hmm_model, 150)
+    # print freq
     print "train_set formed"
     print "Max length from reference: ", max_hp_ref
+    print "Likelihood: ", count_likelihood(train_set, hmm_model, cur_len)
+    for i in range(5):
+        print "Step: ", i
+        ins_base, len_match, len_ins, trans, sigma = em.update_parameters(train_set, hmm_model, max_hp_ref, b, 4, freq, cur_len)
 
-    print "Likelihood: ", count_likelihood(train_set, hmm_test, cur_len)
-
-    ins_base, len_match, len_ins, trans = em.update_parameters(train_set, hmm_test, max_hp_ref, b, 4, freq, cur_len)
-
-    trans[3, ] = em.get_eln([0.2999, 0.3, 0.4, 0, 0.0001])
-    trans[4, ] = em.get_eln([0.0, 0.0, 0.0, 0.0, 1.0])
-    new_model = hmm.HmmModel(ins_base, len_match, len_ins, trans)
-    print "Model created, ", "Likelihood: ", count_likelihood(train_set, new_model, cur_len)
+        trans[3, ] = em.get_eln([0.9, 0.05, 0.05, 0, 0.0001])
+        trans[4, ] = em.get_eln([0.0, 0.0, 0.0, 0.0, 1.0])
+        hmm_model = hmm.HmmModel(ins_base, len_match, len_ins, trans)
+        print "Model created, ", "Likelihood: ", count_likelihood(train_set, hmm_model, cur_len)
     # it returns ins_base_call, length_call_match, length_call_ins, transition_matrix
 
     return 0

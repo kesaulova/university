@@ -15,7 +15,6 @@ iter_plog = addmath.iter_plog
 iter_slog = addmath.iter_slog
 homopolymer = hmm.homopolymer
 nucl_to_hp = hmm.nucleotide_to_homopolymer
-by_iter_slog = addmath.by_iter_slog
 
 
 def write_to_file_matrix(cur_file, matrix):
@@ -245,9 +244,9 @@ def count_forward(read_tmp, reference_tmp, model):
 
             # fill F(i,j,pi)
             for state in states:
-                forward_position[i][j][state] = by_iter_slog(numpy.nditer(forward[i, j, :, :, state]))
+                forward_position[i][j][state] = iter_slog(forward[i, j, :, :, state])
 
-    check = by_iter_slog(numpy.nditer(forward_position[len(read_tmp), len(reference) - 1, :]))
+    check = iter_slog(forward_position[len(read_tmp), len(reference) - 1, :])
     return forward, check
 
 
@@ -397,8 +396,8 @@ def count_missing_variables(model, read_tmp, reference_tmp): #, transition_matri
     forward, check_forward = count_forward(read_tmp, reference_tmp, model)
     backward, check_backward = count_backward(read_tmp, reference_tmp, model)
     #  check_forward and check_backward must be same
-    print "Difference: ", abs(check_forward - check_backward)
-    print numpy.exp(check_backward)/numpy.exp(check_forward)
+    # print "Difference: ", abs(check_forward - check_backward)
+    # print numpy.exp(check_backward)/numpy.exp(check_forward)
     # shape of forward and backward must also be the same
     # print "Shape: ", forward.shape, backward.shape
 
@@ -530,18 +529,18 @@ def update_parameters(training_set, base_model, max_hp_len, b, sigma, hp_freq, l
     max_hp = 0
     for pair in training_set:   # process every pair of read, reference
 
-        # read = pair[0][:len_string]
-        # reference = pair[1][:len_string]
-        read = pair[0]
-        reference = pair[1]
+        read = pair[0][:len_string]
+        reference = pair[1][:len_string]
+        # read = pair[0]
+        # reference = pair[1]
         # FOR TESTING! Not interesting in alignment of equal string
         if read == reference:
             continue
-        print "\n Step:", counter, '\n'
+        # print "\n Step:", counter, '\n'
         if counter == 45:
             break
         counter += 1
-        print "Read:     ", read, "\nReference:", reference
+        # print "Read:     ", read, "\nReference:", reference
 
         # xi shape: [read_pos, ref_pos, prev_state, curr_state, hp_read_len, hp_ref_len]
         # gamma shape: [read_pos, ref_pos, hp_read_len, hp_ref_len, state]
@@ -551,38 +550,41 @@ def update_parameters(training_set, base_model, max_hp_len, b, sigma, hp_freq, l
         max_hp_ref = max(len_max_hp_end(reference))
         if max_hp < max_hp_ref:
             max_hp = max_hp_ref
-        print gamma.shape
-        print gamma.max(), numpy.exp(gamma.max()), numpy.log(numpy.exp(gamma.max()))
-        print xi.max(), numpy.exp(xi.max())
-        print "Updating parameters"
+        # print gamma.shape
+        # print gamma.max(), numpy.exp(gamma.max()), numpy.log(numpy.exp(gamma.max()))
+        # print xi.max(), numpy.exp(xi.max())
+        # print "Updating parameters"
         # update T (transition matrix), T(pi, pi')
         for previous in states:
             for current in states:
-                transition_matrix[previous, current] = by_iter_slog(numpy.nditer(xi[:, :, previous, current, :, :]))
-        print "Transition matrix done"
+                transition_matrix[previous, current] = iter_slog(xi[:, :, previous, current, :, :])
+        # print "Transition matrix done"
         # update L(k,l) - occurrences of length calling
         for k in xrange(max_hp_read + 1):     # maximum length of HP. All of not-useful will be -inf
             for l in xrange(max_hp_ref + 1):
                 # print l, k, "Shape: ", length_call_matrix.shape
-                length_call_matrix[l, k] = by_iter_slog(numpy.nditer(gamma[:, :, k, l, :]))
-        print "Length call done"
+                length_call_matrix[l, k] = iter_slog(gamma[:, :, k, l, :])
+        # print "Length call done"
         # update length call for insertion. gamma[i + 1...], because here count read from 0, in gamma from 1
         for i in xrange(len(read)):
             ins_base_call[bases[read[i]]] = log_sum(ins_base_call[bases[read[i]]],
-                                                    by_iter_slog(numpy.nditer(gamma[i + 1, :, 1:, 0, 2])))
-        print "Information updated"
+                                                    iter_slog(gamma[i + 1, :, 1:, 0, 2]))
+        # print "Information updated"
         gamma = xi = None
 
 
     transition_matrix = transition_normalize(transition_matrix)
     ins_base_call = base_call_normalize(ins_base_call)
-    # sp_length_call = transition_normalize(length_call_matrix)
+    file_tmp = open("test_params.txt", 'w')
+    write_to_file_matrix(file_tmp, get_exp(length_call_matrix))
+    for i in xrange(len(length_call_matrix[:, 0])):
+        file_tmp.writelines(["\n" + str(sum(get_exp(length_call_matrix[i, :]))) + "\n"])
+    file_tmp.close()
+
     length_call_match, length_call_ins, new_b, new_sigma = update_length_call_parameters(length_call_matrix,
                                                                                        b, max_hp_len, hp_freq, sigma)
     write_params()
-    return ins_base_call, length_call_match, length_call_ins, transition_matrix
-    # print sp_length_call[1:, :].shape, length_call_match.shape
-    # return ins_base_call, sp_length_call[1:, :], sp_length_call[0, :], transition_matrix
+    return ins_base_call, length_call_match, length_call_ins, transition_matrix, new_sigma
 
 
 def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, sigma):
@@ -597,15 +599,15 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
     # length_call_matrix = numpy.exp(length_call_matrix_ln)
     length_call_matrix = get_exp(length_call_matrix_ln)
     dim = length_call_matrix.shape
-    for i in range(dim[0]):
-        for j in range(dim[1]):
-            print round(length_call_matrix[i, j], 7),
-        print '\n'
+    # for i in range(dim[0]):
+        # for j in range(dim[1]):
+        #     print round(length_call_matrix[i, j], 7),
+        # print '\n'
     f_start = 0.0001
     f_end = max_length_hp + 1
     f = numpy.arange(f_start, f_end, 0.1)
 
-    def count_p_f_l(b_scale):
+    def count_p_f_l(b_scale, sigma):
         """
         Count p(f|l) - Laplace distribution, probability of flow intensity f, when input HP have length l
         :param b: parameter of scale
@@ -613,6 +615,7 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
         """
         tmp = numpy.zeros(shape=[len(f), max_length_hp + 1], dtype=float)
         for ff in xrange(len(f)):
+            tmp[ff, 0] = lognorm.pdf(f[ff], 1, loc=0, scale=sigma)
             for l in xrange(1, max_length_hp + 1):   # l = 0 count by log-normal distribution
                 tmp[ff, l] = laplace.pdf(f[ff], loc=l, scale=b_scale[l])
         return tmp
@@ -622,8 +625,8 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
         for each f count Z = \sum_{k}p(f | k) * p(k)
         """
         tmp = numpy.zeros(shape=[len(f)], dtype=float)     # Coefficient of normalize Z = \sum_{k}p(f | k) * p(k)
-        for i in xrange(len(f)):
-            tmp[i] = sum(p_f_l[i, :]*p_k[:len(p_f_l[i, :])])
+        for ff in range(len(f)):
+            tmp[ff] = sum(p_f_l[ff, :]*p_k[:len(p_f_l[ff, :])])
         return tmp
 
     def count_p_k_f():
@@ -632,23 +635,16 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
         p(k|f) = p(f|k)*p(k)/Z
         """
         tmp = numpy.zeros(shape=[max_length_hp + 1, len(f)], dtype=float)     # p(k | f)
-        it = numpy.nditer(tmp, flags=['multi_index'], op_flags=['writeonly'])
-        while not it.finished:
-            k_tmp = it.multi_index[0]
-            f_tmp = it.multi_index[1]
-            it[0] = p_f_l[f_tmp, k_tmp] * p_k[k_tmp] / z_f[f_tmp]
-            it.iternext()
-        # tmp = numpy.zeros(shape=[max_length_hp + 1, len(f)], dtype=float)     # p(k | f)
-        # for k in xrange(1, max_length_hp + 1):
-        #     for ff in xrange(len(f)):
-        #         tmp[k, ff] = p_f_l[ff, k] * p_k[k] / z_f[ff]
+        for k in xrange(max_length_hp + 1):
+            for ff in xrange(len(f)):
+                tmp[k, ff] = p_f_l[ff, k] * p_k[k] / z_f[ff]
         return tmp
 
-    def count_p_f_zero(sigma):
-        tmp = []
-        for ff in xrange(len(f)):
-            tmp.append(lognorm.pdf(f[ff], 1, loc=0, scale=sigma))
-        return tmp
+    # def count_p_f_zero(sigma):
+    #     # tmp = numpy.zeros(shape=[len(f)], dtype=float)
+    #     for ff in xrange(len(f)):
+    #         p_f_l[ff, 0] = lognorm.pdf(f[ff], 1, loc=0, scale=sigma)
+    #     return tmp
 
     def expectation_step():
         """
@@ -657,16 +653,17 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
         tmp = numpy.zeros(shape=[len(f), max_length_hp + 1, max_length_hp + 1], dtype=float)     # p(f | k, l)
         tmp_zero = numpy.zeros(shape=[len(f), max_length_hp + 1], dtype=float)     # p(f | k, 0)
         for k in xrange(1, max_length_hp + 1):
-            tst = [p_k_f[k, i] * p_f_zero[i] for i in xrange(len(f))]
-            if sum(tst) != 0:
-                tst = tst / sum(tst)
-            tmp_zero[:, k] = tst[:]
-            for l in xrange(1, max_length_hp + 1):
+            # tst = [p_k_f[k, i] * p_f_zero[i] for i in xrange(len(f))]
+            # if sum(tst) != 0:
+            #     tst = tst / sum(tst)
+            # tmp_zero[:, k] = tst[:]
+            for l in xrange(max_length_hp + 1):
                 tst = [p_k_f[k, i]*p_f_l[i, l] for i in xrange(len(f))]
                 if sum(tst) != 0:
                     tst = tst / sum(tst)
                 tmp[:, k, l] = tst[:]  # p(k|f) * p(f|l)
-        return tmp_zero, tmp
+        # return tmp_zero, tmp
+        return tmp
 
     def prod(x, y):
             assert (len(x) == len(y)), "773"
@@ -691,14 +688,7 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
                 tmp_num = [p_f_k_l[ff, k, l] * abs(f[ff] - l) for ff in xrange(len(f))]
                 numerator = numerator + length_call_matrix[l, k] * sum(tmp_num)
                 denominator = denominator + sum(p_f_k_l[:, k, l]) * length_call_matrix[l, k]
-            # numerator_tmp = 0
-            # denominator_tmp = 0
-            # for ff in xrange(len(f)):
-            #     for k in xrange(1, max_length_hp + 1):
-            #         temp = p_f_k_l[ff, k, l]*length_call_matrix[l, k]
-            #         numerator_tmp += temp * abs(f[ff] - l)
-            #         denominator_tmp += temp
-            print round(numerator, 4), round(denominator, 4)
+            # print round(numerator, 4), round(denominator, 4)
             tmp_b[l] = numerator / denominator
         return tmp_b
 
@@ -707,16 +697,18 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
         Count parameter of log-normal distribution.
         :return: counted parameter
         """
-        numerator_tmp = sum([prod(p_f_k_zero[ff, :], length_call_matrix[0, :])*eln(f[ff])**2 for ff in xrange(len(f))])
-        denominator_tmp = sum([prod(p_f_k_zero[ff, :], length_call_matrix[0, :]) for ff in xrange(len(f))])
+        # numerator_tmp = sum([prod(p_f_k_zero[ff, :], length_call_matrix[0, :])*eln(f[ff])**2 for ff in xrange(len(f))])
+        # denominator_tmp = sum([prod(p_f_k_zero[ff, :], length_call_matrix[0, :]) for ff in xrange(len(f))])
+        numerator_tmp = sum([prod(p_f_k_l[ff, :, 0], length_call_matrix[0, :])*eln(f[ff])**2 for ff in xrange(len(f))])
+        denominator_tmp = sum([prod(p_f_k_l[ff, :, 0], length_call_matrix[0, :]) for ff in xrange(len(f))])
         numerator = 0
         denominator = 0
         for ff in xrange(len(f)):
             for k in xrange(max_length_hp):
-                element = p_f_k_zero[ff, k] * length_call_matrix[0, k]
+                element = p_f_k_l[ff, k, 0] * length_call_matrix[0, k]
                 denominator += element
                 numerator += (element * eln(f[ff])**2)
-        print "Count sigma ", round(numerator - numerator_tmp, 4), round(denominator - denominator_tmp, 4)
+        # print "Count sigma ", round(numerator - numerator_tmp, 4), round(denominator - denominator_tmp, 4)
         return math.sqrt(numerator / denominator)
 
     def count_length_call_match(max_hp_length, scale, pk):
@@ -740,6 +732,10 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
             denom = sum([pk[i] * laplace.pdf(x, loc=i, scale=scale[i]) for i in xrange(1, max_hp_length + 1)])
             return num/denom
 
+        def pfl(x, l):
+            res = laplace.pdf(x, loc=l, scale=scale[l])
+            return res
+
         def normalize(item, max_len):
             """
             Normalize length call matrix (sum values in one row must be 1)
@@ -752,7 +748,9 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
             return item
 
         for l in xrange(1, max_hp_length + 1):
+            # print "l = ", l, " int(p(f|l)) = ", quad(pfl, 0, max_hp_length, args=(l))[0]
             for k in xrange(1, max_hp_length + 1):
+                # print l, k
                 result[l - 1, k - 1] = quad(lcall, 0, max_hp_length, args=(l, k))[0]
         result = normalize(result, max_hp_length)
         return result
@@ -796,9 +794,9 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
 
         file_tmp.writelines('\n')
 
-        file_tmp.writelines("\n p(f | k, 0)\n")
-        for i in xrange(0, len(f), len(f)/max_length_hp):
-            write_to_file_array(file_tmp, p_f_k_zero[i, :])
+        # file_tmp.writelines("\n p(f | k, 0)\n")
+        # for i in xrange(0, len(f), len(f)/max_length_hp):
+        #     write_to_file_array(file_tmp, p_f_k_zero[i, :])
 
         file_tmp.writelines('\n')
         file_tmp.writelines("\n p(f | l)\n")
@@ -813,16 +811,17 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
         file_tmp.writelines("\n p(k | f)\n")
         write_to_file_matrix(file_tmp, numpy.asarray([p_k_f[:, j] for j in xrange(0, len(f), len(f)/max_length_hp)]))
 
-        file_tmp.writelines('\n')
-        file_tmp.writelines("\n p(f | 0)\n")
-        write_to_file_array(file_tmp, numpy.asarray([p_f_zero[i] for i in xrange(0, len(f), len(f)/max_length_hp)]))
-        file_tmp.close()
+        # file_tmp.writelines('\n')
+        # file_tmp.writelines("\n p(f | 0)\n")
+        # write_to_file_array(file_tmp, numpy.asarray([p_f_zero[i] for i in xrange(0, len(f), len(f)/max_length_hp)]))
+        # file_tmp.close()
 
-    p_f_l = count_p_f_l(b)     # p(f | l)
+    p_f_l = count_p_f_l(b, sigma)     # p(f | l)
     z_f = count_z_f()      # Coefficient of normalize Z = \sum_{k}p(f | k) * p(k)
     p_k_f = count_p_k_f()       # p(k | f)
-    p_f_zero = count_p_f_zero(sigma)    # p(f | 0)
-    p_f_k_zero, p_f_k_l = expectation_step()     # p(f | k, 0),  p(f | k, l)
+    # p_f_zero = count_p_f_zero(sigma)    # p(f | 0)
+    # p_f_k_zero, p_f_k_l = expectation_step()     # p(f | k, 0),  p(f | k, l)
+    p_f_k_l = expectation_step()
     write_evr()
 
     new_b = count_b()
@@ -832,6 +831,9 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
             new_b[i] = new_b[i - 1] + (new_b[i - 1] - new_b[i - 2])/2.0
 
     new_sigma = count_sigma()
+
+    # length_call_match = count_length_call_match(max_length_hp, new_b, p_k)
+    # length_call_insertion = count_length_insertion(max_length_hp, new_sigma, new_b, p_k)
 
     length_call_match = count_length_call_match(max_length_hp, new_b, p_k)
     length_call_insertion = count_length_insertion(max_length_hp, new_sigma, new_b, p_k)

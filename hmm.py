@@ -5,9 +5,12 @@ import addmath
 discrete_distribution = addmath.discrete_distribution
 eln = addmath.eln
 exp = addmath.eexp
+eln_matrix = addmath.get_eln
 log_product = addmath.log_product
 iter_plog = addmath.iter_plog
 eexp = addmath.eexp
+from scipy.stats import laplace, lognorm
+from scipy.integrate import quad
 
 def hp_print(a):
     """
@@ -211,6 +214,82 @@ class HmmModel:
     Model contains from blocks, number of blocks have predefine size. Each block - HMM record.
     ! Don't have method for fill Hmm Model in not-testing case
     """
+
+    @staticmethod
+    def test_count_b(max_len):
+        """
+        Take parameters from article and count b. b = c_0 + c_1*l^c_2
+        :param max_len: maximum length of homopolymer
+        :return: array of length max_length + 1 - for convenience call b[l]
+        """
+        c_0 = 0.665997
+        c_1 = 0.0471694
+        c_2 = 1.23072
+        res = [0]
+        for l in xrange(max_len):
+            res += [c_0 + c_1 * l**c_2]
+        return res
+
+    @staticmethod
+    def count_length_call_match(max_hp_length, scale, pk):
+        """
+        Count length-call matrix, based on updated scale parameter of laplace distribution
+        :param max_hp_length: maximum length of hp
+        :param scale: updated scale parameter of Laplace distribution
+        :return: matrix
+        """
+        result = numpy.zeros(shape=[max_hp_length, max_hp_length], dtype=float)
+
+        def lcall(x, l, k):
+            """
+            Integrated function
+            :param x: f, flow intensity
+            :param l: length of input hp
+            :param k: length of output hp
+            :return: counted function
+            """
+            num = laplace.pdf(x, loc=l, scale=scale[l]) * laplace.pdf(x, loc=k, scale=scale[k]) * pk[k]
+            denom = sum([pk[i] * laplace.pdf(x, loc=i, scale=scale[i]) for i in xrange(1, max_hp_length + 1)])
+            return num/denom
+
+        def normalize(item, max_len):
+            """
+            Normalize length call matrix (sum values in one row must be 1)
+            :param item: square matrix
+            :param max_len: number of rows/columns
+            :return:
+            """
+            for i in xrange(max_len):
+                item[i, ] = item[i, ] / sum(item[i, ])
+            return item
+
+        for l in xrange(1, max_hp_length + 1):
+            for k in xrange(1, max_hp_length + 1):
+                result[l - 1, k - 1] = quad(lcall, 0, max_hp_length, args=(l, k))[0]
+        result = normalize(result, max_hp_length)
+        return result
+
+    @staticmethod
+    def count_length_insertion(max_hp_length, sigma_scale, b_scale, pk):
+        """
+        Count length call in case zero-length of input hp
+        :param max_hp_length: maximum hp length
+        :param sigma_scale: scale parameter for log-normal distribution
+        :param b_scale: scale parameters (an array) for Laplace distribution
+        :return: an array with probabilities of calling certain length from 0
+        """
+        result = numpy.zeros(shape=[max_hp_length], dtype=float)
+
+        def lcall(x, k):
+            num = lognorm.pdf(x, 1, loc=0, scale=sigma_scale) * laplace.pdf(x, loc=k, scale=b_scale[k]) * pk[k]
+            denom = sum([pk[i] * laplace.pdf(x, loc=i, scale=b_scale[i]) for i in xrange(1, max_hp_length + 1)])
+            return num/denom
+
+        for k in xrange(1, max_hp_length + 1):
+            result[k - 1] = quad(lcall, 0, max_hp_length, args=(k))[0]
+        result = result / sum(result)
+        return result
+
     @staticmethod
     def pseudo_length_call_match():
         """
@@ -244,14 +323,33 @@ class HmmModel:
         insertion_calls = insertion_calls_probabilities
         return insertion_calls
 
+
     def fill_test_model(self, size):
         """
         Create test model, probabilities of all blocks are equal and extracts from file 'HMM_test.txt'
         :param size: number of blocks in model
         :return:
         """
-        length_call_test = self.pseudo_length_call_match()
-        length_call_insert_test = self.pseudo_length_call_insert()
+        # freq = [0.0, 0.7152478454907308, 0.19311689366656737, 0.06231522667579097, 0.019076114917007392,
+        #         0.0071816975637614125, 0.0023397441420240695, 0.0005710895749075056, 0.00014154159722923093,
+        #         9.846371981163891e-06, 9.846371981163891e-08, 9.846371981163891e-09, 9.846371981163891e-09,
+        #         9.846371981163891e-09, 9.846371981163891e-09, 9.846371981163891e-09]
+        # sigma = 4
+        # b = self.test_count_b(15)
+        # length_call_test = self.count_length_call_match(15, b, freq)
+        # length_call_insert_test = self.count_length_insertion(15, sigma, b, freq)
+        # length_call_test = self.pseudo_length_call_match()
+        # length_call_insert_test = self.pseudo_length_call_insert()
+        k = 0
+        length_call_test = numpy.zeros(shape=[15, 15], dtype=float)
+        for lines in open('length_start.txt'):
+            information = re.split('\t', lines.rstrip('\n'))
+            if k == 0:
+                length_call_insert_test = [float(information[i]) for i in xrange(len(information))]
+            else:
+                length_call_test[k - 1, :] = [float(information[i]) for i in xrange(len(information))]
+            k += 1
+
         transition_probabilities = numpy.zeros(shape=[len(self.states), len(self.states)], dtype=float)
         for lines in open('./HMM_test.txt'):
             # print re.split('\t', lines.rstrip('\n'))
@@ -259,15 +357,20 @@ class HmmModel:
             if information[0] == '-:':
                 base_call = [float(information[i]) for i in xrange(1, len(information))]
             elif information[0] == 'Begin':
-                transition_probabilities[self.states.index('Begin')] = [float(information[i]) for i in xrange(1, len(information))]
+                transition_probabilities[self.states.index('Begin')] = [float(information[i]) for i in
+                                                                        xrange(1, len(information))]
             elif information[0] == 'Match':
-                transition_probabilities[self.states.index('Match')] = [float(information[i]) for i in xrange(1, len(information))]
+                transition_probabilities[self.states.index('Match')] = [float(information[i]) for i in
+                                                                        xrange(1, len(information))]
             elif information[0] == 'Insertion':
-                transition_probabilities[self.states.index('Insertion')] = [float(information[i]) for i in xrange(1, len(information))]
+                transition_probabilities[self.states.index('Insertion')] = [float(information[i]) for i in
+                                                                            xrange(1, len(information))]
             elif information[0] == 'Deletion':
-                transition_probabilities[self.states.index('Deletion')] = [float(information[i]) for i in xrange(1, len(information))]
+                transition_probabilities[self.states.index('Deletion')] = [float(information[i]) for i in
+                                                                           xrange(1, len(information))]
             elif information[0] == 'End':
-                transition_probabilities[self.states.index('End')] = [float(information[i]) for i in xrange(1, len(information))]
+                transition_probabilities[self.states.index('End')] = [float(information[i]) for i in
+                                                                      xrange(1, len(information))]
         element_zero = HmmRecord(base_call, length_call_test, length_call_insert_test, transition_probabilities)
         transition_probabilities[self.states.index('Begin')] = [0, 0, 0, 0, 0]
         element = HmmRecord(base_call, length_call_test, length_call_insert_test, transition_probabilities)
@@ -300,7 +403,7 @@ class HmmModel:
                 self.HMM = [element]*400
 
 
-def create_sequence(model, max_size, reference):
+def create_sequence(model, max_size, reference_nucl):
     """
     Model sequence path with given reference
     :param model: HMM model
@@ -309,14 +412,12 @@ def create_sequence(model, max_size, reference):
     """
     state_path = []
     sequence = []
-    # get initial state, set model size to 0, reference position to 0
     current_state_number = 0
     current_reference_number = 0
-    # current_state = model.states[discrete_distribution(model.initial_probabilities)]
     current_state = 'Begin'
     state_path.append([current_state_number, current_state])
+    reference = nucleotide_to_homopolymer(reference_nucl)
 
-    # count for number of insertions
     number_insertions = 0
     while current_state_number != max_size:
         # get next state, while length of model allow us do it
@@ -338,15 +439,17 @@ def create_sequence(model, max_size, reference):
             current_reference_number += 1
             current_state_number += 1
             number_insertions = 0
-        else:
-            print 'hmm.py, 242 line, error!'
-            exit(1)
+        #elif next_state == 'End':
+            #
+            # print next_state
+            # print 'hmm.py, 242 line, error!'
+            # exit(1)
         sequence.append(current_hp)
         state_path.append([current_state_number, next_state])
-        if next_state == 'End' or current_reference_number == len(reference):
+        if next_state == 'End' or current_reference_number == (len(reference) - 1):
             break
         current_state = next_state
-    return state_path, sequence
+    return homopolymer_to_nucleotide(sequence), state_path
 
 
 def nucleotide_to_homopolymer(sequence):

@@ -72,7 +72,7 @@ def form_train_set(model, len_train_set):
         :param max_length: maximum length of homopolymer
         :return: array of length max_length + 1 - for convenience call b[l]
         """
-        c_0 = 0.665997
+        c_0 = 0.0665997
         c_1 = 0.0471694
         c_2 = 1.23072
         res = [0]
@@ -114,23 +114,6 @@ def form_train_set(model, len_train_set):
             max_count = curr_count
         return max_count
 
-    #
-    # def count_lengthest(sequence, a=15):
-    #     count = 0
-    #     curr_count = 1
-    #     curr_base = sequence[0]
-    #     for i in xrange(1, len(sequence)):
-    #         if sequence[i] == curr_base:
-    #             curr_count += 1
-    #         else:
-    #             if curr_count == a:
-    #                 count += 1
-    #             curr_base = sequence[i]
-    #             curr_count = 1
-    #     return count
-    #
-    # temporary!!!
-
     def count_occurrences(ref, max_len):
         """
         Count frequency of HP all length along with reference
@@ -162,7 +145,7 @@ def form_train_set(model, len_train_set):
     assert (max_hp_ref <= 12), "Lengthest HP in reference longer than 12! It is " + str(max_hp_ref)
 
     training_set = []
-    generated_set = []
+    # generated_set = []
     fasta_length = len(fasta_string)
     observed_freq = count_occurrences(fasta_string[1:], max_hp_ref)
     tr_set = open("training_set.txt", 'w')
@@ -183,7 +166,7 @@ def form_train_set(model, len_train_set):
         gen_read, path = hmm.create_sequence(model, 120, read_seq[:min(100, len(read_seq))])
         if hp_max_len(gen_read) > max_hp_ref:
             continue
-        generated_set.append([gen_read, read_seq])
+        # generated_set.append([gen_read, read_seq])
 
         pos = int(sam_fields[3])
         if pos + len(read_seq) + 150 < fasta_length:
@@ -193,14 +176,147 @@ def form_train_set(model, len_train_set):
                 write_set(read, fasta_string[pos:pos + end], sam_fields[10], tr_set)
                 training_set.append([read, reference, sam_fields[10]])
                 i += 1
-                # temp = [count_lengthest(read_seq, i) for i in xrange(16)]
-                # count_lengthest_read = [0] + [count_lengthest_read[i] + temp[i] for i in xrange(1, 16)]
         else:
             continue
     tr_set.close()
     b_scale = test_count_b(max_hp_ref)
-    # return training_set, observed_freq['A'][:], b_scale, max_hp_ref
-    return generated_set, observed_freq['A'][:], b_scale, max_hp_ref
+    return training_set, observed_freq['A'][:], b_scale, max_hp_ref
+    # return generated_set, observed_freq['A'][:], b_scale, max_hp_ref
+
+
+def region_train_set(begin, min_len):
+    """
+    Detect reads, relating to desired region in reference string
+    :param begin: start region
+    :param min_len: begin + min_len - end of region
+    :return: train set
+    """
+
+    def split_cigar(cigar, read, reference, quality_string):
+        """
+        Use sigar string to delete S and other unuseful symbols and detect reference, corresponding to read.
+        :param cigar:
+        :param read: read sequence
+        :param reference: reference sequence. Form like reference[start_pos: start_pos + read_len + 150]
+        :param quality_string: quality string, associated with read
+        :return: updated read, reference, quality (as a list with numbers), length of reference
+        """
+        read_edit = ''
+        reference_edit = ''
+        quality_list = []
+        insertions = []
+        alignments = []
+        pattern = re.compile('([MIDNSHPX=])')
+        values = pattern.split(cigar)[:-1]  # turn cigar into tuple of values
+        paired = (values[n:n+2] for n in xrange(0, len(values), 2)) # pair values by twos
+        i = 0   # read coordinate index
+        g = 0   # reference coordinate index
+        for pair in paired:
+            l = int(pair[0])    # length of CIGAR event
+            t = pair[1]     # type of CIGAR event
+            if t == 'M':    # if match, return consecutive coordinates
+                alignments.append((g, (i, i + l)))   # (genomic offset, (alignment.start, alignment.end))
+                reference_edit += reference[g: g + l]
+                read_edit += read[i:i + l]
+                quality_list.extend([ord(quality_string[k]) - 33 for k in xrange(i, i + l)])
+                i += l
+                g += l
+            elif t == 'D':  # skip 'l' number of coordinates in reference
+                # quality_list.extend([0]*l)
+                reference_edit += reference[g:g + l]
+                g += l
+            elif t == 'I':  # insertion of 'l' length
+                # insertions.append((i, i + l))
+                read_edit += read[i:i + l]
+                quality_list.extend([ord(quality_string[k]) for k in xrange(i, i + l)])
+                i += l
+            elif t == 'N': ## skipped region from the reference
+                pass
+            elif t == 'S': ## soft clipping (clipped sequences present in SEQ)
+                i += l
+                pass
+            elif t == 'H': ## hard clipping (clipped sequences NOT present in SEQ)
+                pass
+            elif t == 'P': ## padding (silent deletion from padded reference)
+                pass
+            elif t == '=': ## sequence match
+                pass
+            elif t == 'X': # sequence mismatch
+                pass
+        return read_edit, reference_edit, quality_list, g
+
+    def write_set(read, reference, file):
+        """
+        Write training set to file
+        :param read: read string
+        :param reference: reference string
+        :param quality: quality array
+        :param file: file to write
+        :return:
+        """
+        tmp = read + '\t' + reference + '\n'
+        file.write(tmp)
+        return 0
+
+    def hp_max_len(sequence):
+        """
+        Detect maximum length of HP along the given sequence.
+        :param sequence: string
+        :return: length of lengthest HP in sequence
+        """
+        curr_base = sequence[0]
+        max_count = 0
+        curr_count = 1
+        for i in xrange(1, len(sequence)):
+            if sequence[i] == curr_base:
+                curr_count += 1
+            else:
+                if curr_count > max_count:
+                    max_count = curr_count
+                curr_base = sequence[i]
+                curr_count = 1
+        if curr_count > max_count:
+            max_count = curr_count
+        return max_count
+
+    # process fasta-file
+    fasta_string = '0'
+    for line in open("DH10B-K12.fasta", 'r'):
+        if line[0] != '>':
+            fasta_string += line.rstrip('\n')
+    max_hp_ref = hp_max_len(fasta_string)
+    assert (max_hp_ref <= 12), "Lengthest HP in reference longer than 12! It is " + str(max_hp_ref)
+
+    training_set = []
+    tr_set = open("C11_training_set.txt", 'w')
+    i = 0
+    for read in open('C11.sam'):
+        i += 1
+        if read[0] == "@":
+            continue
+
+        sam_fields = re.split('\t', read.rstrip('\n'))
+        pos = int(sam_fields[3])
+        read_seq = sam_fields[9]
+        if (pos < begin) and (pos + len(read_seq)) > (begin + min_len):
+            # Throw away reads, contains HP with length more than maximum hp length in reference
+            if hp_max_len(read_seq) > max_hp_ref:
+                continue
+
+            # Read without quality
+            read, reference, read_quality, end = split_cigar(sam_fields[5], read_seq,
+                                            fasta_string[pos:pos + len(read_seq) + 150], sam_fields[10])
+            # if read_quality != [] and len(read) == len(sam_fields[10]):
+            # print "Difference: ", len(read) - len(fasta_string[pos:pos + end]), len(read), end
+            write_set(read, fasta_string[pos:pos + end], tr_set)
+            training_set.append([read, reference])
+            # else:
+            #     print "Here else"
+            #     print len(sam_fields[10]), len(read), sam_fields[5]
+
+    tr_set.close()
+    print i, len(training_set)
+    return training_set,  max_hp_ref
 
 
 def count_likelihood(train_set, model, cur_len):
@@ -208,6 +324,15 @@ def count_likelihood(train_set, model, cur_len):
     for pair in train_set:
         path, probability = vit.viterbi_path(pair[0][:cur_len], pair[1][:cur_len], model)
         result += probability
+    return result
+
+
+def generate_set(model, read, set_size, len_seq):
+    result = []
+    for i in range(set_size):
+        # print i
+        gen_read, path = hmm.create_sequence(model, len_seq + 20, read[:min(len_seq, len(read))])
+        result.append([gen_read, read])
     return result
 
 
@@ -229,6 +354,23 @@ def training():
 
             # new_model = hmm.HmmModel(ins_base_call, length_call_match, length_call_ins, transition_matrix)
 
+        d
+
+
+def read_set_from_file(file_name):
+    result = []
+    for lines in open(file_name):
+        rec = re.split('\t', lines.rstrip('\n'))
+        result.append([rec[0], rec[1]])
+    return result
+
+
+def write_likelihood(f_name, val):
+    f = open(f_name, 'a')
+    f.writelines(["\nModel likelihood: ", str(round(val, 4))])
+    f.close()
+    return 0
+
 
 def main():
     """
@@ -237,24 +379,41 @@ def main():
     :param model: start model
     :return:
     """
-    hmm_model = hmm.HmmModel()
+    par_file_name = "HMM_parameters3.txt"
+    hmm_model = hmm.HmmModel(par_file_name)
     print "Test model created"
-    cur_len = 40
-    sigma = 4
+    cur_len = 90
+    sigma = 1
+    max_iterations = 70
+    lik = []
 
-    train_set, freq, b, max_hp_ref = form_train_set(hmm_model, 150)
+    # train_set, freq, b, max_hp_ref = form_train_set(hmm_model, 250)
+    train_set, freq, cheat_b, max_hp_ref = form_train_set(hmm_model, 250)
+    sequence = "GCTGCATGATATTGAAAAAATATCACCAAATAAAAAACGCCTTAGTAAGTATTTTTCAGCTTTTCATTCTGACTGCAACGGGCAATATGTCTCTGTGTGGA" \
+               "TTAAAAAAGAGTGTCTGATAGCAGCTTCTGAACTGGTTACCTGCCGTGAGTAAATTAAAATTTTATTGACTTAGGTCACTAAATACTTTAACCAATATAGG" \
+               "CATAGCGCACAGACAGATAAAAATTACAGAGTACACAACATCCATGAAACGCATTAGCACCACCATTACCACCACCATCACCATTACCACAGGTAACGGTG" \
+               "CGGGCTGACGACGTACAGGAAACACAGAAAAAAGCCCGCTAC"
+    train_set = generate_set(hmm_model, sequence, 150, len(sequence))
+    # train_set = read_set_from_file("C11_training_set.txt")
     # print freq
     print "train_set formed"
     print "Max length from reference: ", max_hp_ref
-    print "Likelihood: ", count_likelihood(train_set, hmm_model, cur_len)
-    for i in range(5):
+    lik.append(count_likelihood(train_set, hmm_model, cur_len))
+    write_likelihood(par_file_name, lik[0])
+    print "Likelihood: ", lik[0]
+    for i in range(10):
         print "Step: ", i
-        ins_base, len_match, len_ins, trans, sigma = em.update_parameters(train_set, hmm_model, max_hp_ref, b, 4, freq, cur_len)
-
+        ins_base, len_match, len_ins, trans, b, sigma = em.update_parameters(train_set, hmm_model,
+                                                        max_hp_ref, cheat_b, sigma, freq, cur_len, max_iterations, i)
+        # ins_base, len_match, len_ins, trans, b, sigma = em.update_parameters(train_set, hmm_model, max_hp_ref, b,
+        #                                                                      sigma, freq, cur_len, max_iterations, i)
         trans[3, ] = em.get_eln([0.9, 0.05, 0.05, 0, 0.0001])
         trans[4, ] = em.get_eln([0.0, 0.0, 0.0, 0.0, 1.0])
-        hmm_model = hmm.HmmModel(ins_base, len_match, len_ins, trans)
-        print "Model created, ", "Likelihood: ", count_likelihood(train_set, hmm_model, cur_len)
+        hmm_model = hmm.HmmModel(par_file_name, ins_base, len_match, len_ins, trans)
+        lik.append(count_likelihood(train_set, hmm_model, cur_len))
+        write_likelihood(par_file_name, lik[i + 1])
+        print "Model created, ", "Likelihood: ", lik[i + 1]
+        print lik
     # it returns ins_base_call, length_call_match, length_call_ins, transition_matrix
 
     return 0

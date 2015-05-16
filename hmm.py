@@ -1,6 +1,9 @@
 import numpy
 import re
 import addmath
+write_to_file_array = addmath.write_to_file_array
+from scipy.stats import laplace, lognorm
+from scipy.integrate import quad
 
 discrete_distribution = addmath.discrete_distribution
 eln = addmath.eln
@@ -9,8 +12,10 @@ eln_matrix = addmath.get_eln
 log_product = addmath.log_product
 iter_plog = addmath.iter_plog
 eexp = addmath.eexp
-from scipy.stats import laplace, lognorm
-from scipy.integrate import quad
+get_exp = addmath.get_exp
+get_eln = addmath.get_eln
+write_to_file_matrix = addmath.write_to_file_matrix
+
 
 def hp_print(a):
     """
@@ -160,13 +165,11 @@ class HmmRecord:
             if h.base != g.base or h.base == '-' or g.base == '-':    # if it isn't match
                 return float("-Inf")
             # [g.length - 1] - count from 0
-            # return self__length_call_match[h.base][h.length][g.length - 1]
             return self.__length_call_match[h.length - 1][g.length - 1]
         if state == 'Insertion':
             if h.base != '-' or g.base == '-':
                 return float("-Inf")
             # [g.length - 1] - count from 0
-            # return (self.__insert_base_call[self.bases.index(g.base)] *
             #      self.__length_call_insert[g.base][g.length - 1])
             return log_product(self.__insert_base_call[self.bases.index(g.base)],
                   self.__length_call_insert[g.length - 1])
@@ -222,7 +225,7 @@ class HmmModel:
         :param max_len: maximum length of homopolymer
         :return: array of length max_length + 1 - for convenience call b[l]
         """
-        c_0 = 0.665997
+        c_0 = 0.0665997
         c_1 = 0.0471694
         c_2 = 1.23072
         res = [0]
@@ -323,8 +326,42 @@ class HmmModel:
         insertion_calls = insertion_calls_probabilities
         return insertion_calls
 
+    @staticmethod
+    def write_parameters(f_name, base_call_tmp, len_call_match_tmp, len_call_ins_tmp, trans_prob_tmp):
+        f = open(f_name, 'a')
+        f.write("\n-------- Another step parameters --------\n")
+        base_call = numpy.array(base_call_tmp).copy()
+        len_call_match = numpy.array(len_call_match_tmp).copy()
+        len_call_ins = numpy.array(len_call_ins_tmp).copy()
+        trans_prob = numpy.array(trans_prob_tmp).copy()
+        if numpy.sum(base_call) < 0:
+            base_call = get_exp(base_call)
+        if numpy.sum(len_call_match) < 0:
+            len_call_match = get_exp(len_call_match)
+        if numpy.sum(len_call_ins) < 0:
+            len_call_ins = get_exp(len_call_ins)
+        if numpy.sum(trans_prob) < 0:
+            trans_prob = get_exp(trans_prob)
 
-    def fill_test_model(self, size):
+        # write transition matrix
+        f.writelines("\n Transition matrix: \n")
+        write_to_file_matrix(f, trans_prob)
+
+        # write insertion base call
+        f.writelines("\n Insertion base call: \n")
+        write_to_file_array(f, base_call)
+
+        # write insertion length call
+        f.writelines("\n Length call (insertion): \n")
+        write_to_file_array(f, len_call_ins)
+
+        # write match length call
+        f.writelines("\n Length call (match): \n")
+        write_to_file_matrix(f, len_call_match)
+        f.close()
+        return 0
+
+    def fill_test_model(self, size, f_name):
         """
         Create test model, probabilities of all blocks are equal and extracts from file 'HMM_test.txt'
         :param size: number of blocks in model
@@ -334,7 +371,7 @@ class HmmModel:
         #         0.0071816975637614125, 0.0023397441420240695, 0.0005710895749075056, 0.00014154159722923093,
         #         9.846371981163891e-06, 9.846371981163891e-08, 9.846371981163891e-09, 9.846371981163891e-09,
         #         9.846371981163891e-09, 9.846371981163891e-09, 9.846371981163891e-09]
-        # sigma = 4
+        # sigma = 1
         # b = self.test_count_b(15)
         # length_call_test = self.count_length_call_match(15, b, freq)
         # length_call_insert_test = self.count_length_insertion(15, sigma, b, freq)
@@ -371,6 +408,7 @@ class HmmModel:
             elif information[0] == 'End':
                 transition_probabilities[self.states.index('End')] = [float(information[i]) for i in
                                                                       xrange(1, len(information))]
+        self.write_parameters(f_name, base_call, length_call_test, length_call_insert_test, transition_probabilities)
         element_zero = HmmRecord(base_call, length_call_test, length_call_insert_test, transition_probabilities)
         transition_probabilities[self.states.index('Begin')] = [0, 0, 0, 0, 0]
         element = HmmRecord(base_call, length_call_test, length_call_insert_test, transition_probabilities)
@@ -379,26 +417,32 @@ class HmmModel:
 
         return 0
 
-    def __init__(self, *args):
+    def __init__(self, file_name, *args):
         """
         Sequence of arguments: base_call, len_call_match, len_call_ins, trans_prob
         """
         self.__modelLength = 400
         self.states = ['Match', 'Deletion', 'Insertion', 'Begin', 'End']
         self.HMM = []
+        # file_name = "HMM_parameters2.txt"
         if len(args) == 0:
             # create test model
             print 'Create test model'
-            self.fill_test_model(self.__modelLength)
+            self.fill_test_model(self.__modelLength, file_name)
         else:
             assert (len(args) == 4), "Length of arguments for HMM model doesn't equal 4!"
+
             base_call, len_call_match, len_call_ins, trans_prob = args
+
+            self.write_parameters(file_name, base_call, len_call_match, len_call_ins, trans_prob)
+
             if isinstance(trans_prob, list):
                 self.HMM = []
                 for i in xrange(len(trans_prob)):
                     element = HmmRecord(base_call[i], len_call_match[i], len_call_ins[i], trans_prob[i])
                     self.HMM.append(element)
             else:
+                print "Really create model"
                 element = HmmRecord(base_call, len_call_match, len_call_ins, trans_prob)
                 self.HMM = [element]*400
 
@@ -410,46 +454,75 @@ def create_sequence(model, max_size, reference_nucl):
     :param max_size: max size of sequence. If we don't achieve End until achievement max_size, stop modeling
     :return: path of states and homopolymers
     """
-    state_path = []
-    sequence = []
-    current_state_number = 0
-    current_reference_number = 0
-    current_state = 'Begin'
-    state_path.append([current_state_number, current_state])
-    reference = nucleotide_to_homopolymer(reference_nucl)
 
-    number_insertions = 0
-    while current_state_number != max_size:
-        # get next state, while length of model allow us do it
-        next_state = model.HMM[current_state_number].transition(current_state)
-        if number_insertions == 2:
-            while next_state == 'Insertion':
-                print 'WTF TOO MANY INSERTIONS'
-                next_state = model.HMM[current_state_number].transition(current_state)
-        if next_state == 'Match':
-            current_hp = model.HMM[current_state_number].emission(reference[current_reference_number], 'Match')
-            current_reference_number += 1
-            current_state_number += 1
-            number_insertions = 0
-        elif next_state == 'Insertion':
-            current_hp = model.HMM[current_state_number].emission(reference[current_reference_number], 'Insertion')
-            number_insertions += 1
-        elif next_state == 'Deletion':
-            current_hp = homopolymer()
-            current_reference_number += 1
-            current_state_number += 1
-            number_insertions = 0
-        #elif next_state == 'End':
-            #
-            # print next_state
-            # print 'hmm.py, 242 line, error!'
-            # exit(1)
-        sequence.append(current_hp)
-        state_path.append([current_state_number, next_state])
-        if next_state == 'End' or current_reference_number == (len(reference) - 1):
-            break
-        current_state = next_state
-    return homopolymer_to_nucleotide(sequence), state_path
+    def supp():
+        state_path = []
+        sequence = []
+        current_state_number = 0
+        current_reference_number = 0
+        current_state = 'Begin'
+        prev_state = current_state
+        prev_base = '-'
+        state_path.append([current_state_number, current_state])
+
+        number_insertions = 0
+        # total_ins = 0
+        # total_match = 0
+        # total_del = 0
+        while current_state_number != max_size:
+            # get next state, while length of model allow us do it
+            next_state = model.HMM[current_state_number].transition(current_state)
+            # if number_insertions == 3:
+            #     while next_state == 'Insertion':
+            #         print 'TOO MANY INSERTIONS'
+            #         return 0, homopolymer_to_nucleotide(sequence), state_path
+            #         # next_state = model.HMM[current_state_number].transition(current_state)
+            if next_state == 'Match':
+                # total_match += 1
+                current_hp = model.HMM[current_state_number].emission(reference[current_reference_number], 'Match')
+                # if prev_state == 'Insertion' and prev_base == current_hp.base:
+                #     continue
+                # else:
+                current_reference_number += 1
+                current_state_number += 1
+                number_insertions = 0
+            elif next_state == 'Insertion':
+                # total_ins += 1
+                current_hp = model.HMM[current_state_number].emission(reference[current_reference_number], 'Insertion')
+                if prev_state == 'Insertion': # or prev_state == 'Match'
+                    while prev_base == current_hp.base:
+                        current_hp = model.HMM[current_state_number].emission(reference[current_reference_number], 'Insertion')
+                number_insertions += 1
+            elif next_state == 'Deletion':
+                # total_del += 1
+                current_hp = homopolymer()
+                current_reference_number += 1
+                current_state_number += 1
+                number_insertions = 0
+            #elif next_state == 'End':
+                #
+                # print next_state
+                # print 'hmm.py, 242 line, error!'
+                # exit(1)
+            sequence.append(current_hp)
+            prev_state = current_state
+            prev_base = current_hp.base
+            state_path.append([current_state_number, next_state])
+            if next_state == 'End' or current_reference_number == (len(reference) - 1):
+                break
+            current_state = next_state
+        # total_numb = float(total_ins + total_match + total_del)
+        # print "Match: ", round(total_match / total_numb, 3), " Deletions: ", round(total_del / total_numb, 3), " Insertions: ", round(total_ins / total_numb, 3)
+        # print len(reference), total_numb
+        # return homopolymer_to_nucleotide(sequence), state_path
+        return 1, homopolymer_to_nucleotide(sequence), state_path
+
+    reference = nucleotide_to_homopolymer(reference_nucl)
+    st, res_1, res_2 = supp()
+    while st == 0:
+        st, res_1, res_2 = supp()
+    # print res_1
+    return res_1, res_2
 
 
 def nucleotide_to_homopolymer(sequence):

@@ -116,3 +116,43 @@ def get_eln(item):
     for x in numpy.nditer(nd_item, op_flags=['readwrite']):
         x[...] = eln(x)
     return nd_item
+
+
+def get_exp(item):
+    """
+    Take a log from every element in array
+    :param item: array (one or more dimensional)
+    :return: ndarray with same shape, with log-elements
+    """
+    nd_item = numpy.array(item).copy()
+    for x in numpy.nditer(nd_item, op_flags=['readwrite']):
+        x[...] = numpy.exp(x)
+    return nd_item
+
+
+def write_to_file_matrix(cur_file, matrix):
+    """
+    Write given matrix in given file
+    :param cur_file: already opened file
+    :param matrix: two-dimensional matrix
+    :return: nothing
+    """
+    dim_1 = numpy.asarray(matrix).shape[0]
+    dim_2 = numpy.asarray(matrix).shape[1]
+    for row in xrange(dim_1):
+        cur_file.writelines(['\t'.join([str(round(matrix[row, col], 4)) for col in xrange(dim_2)]), '\n'])
+
+    return 0
+
+
+def write_to_file_array(cur_file, array):
+    """
+    Write given matrix in given file
+    :param cur_file: already opened file
+    :param array: two-dimensional matrix
+    :return: nothing
+    """
+    dim_1 = len(array)
+    cur_file.writelines(['\t'.join([str(round(array[col], 4)) for col in xrange(dim_1)]), '\n'])
+    return 0
+

@@ -100,7 +100,7 @@ def count_forward(read_tmp, reference_tmp, model):
     reference = [homopolymer()] + nucl_to_hp(reference_tmp)
     read = ' ' + read_tmp
     states = {0: 'Match', 1: 'Deletion', 2: 'Insertion', 3: 'Begin', 4: 'End'}
-    states_without_ins = {0: 'Match', 1: 'Deletion', 3: 'Begin', 4: 'End'}
+    states_without_ins = {0: 'Match', 1: 'Deletion'}    # 3: 'Begin', 4: 'End'}
     states_without_match = {1: 'Deletion', 2: 'Insertion', 3: 'Begin', 4: 'End'}
 
     max_hp_read = [0] + len_max_hp_end(read_tmp) + [0]

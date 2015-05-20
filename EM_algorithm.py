@@ -1,10 +1,10 @@
 import hmm
 import numpy
 import addmath
-import math
 from scipy.stats import laplace, lognorm
 from scipy.integrate import quad
-import re
+import time
+import multiprocessing as mp
 from inspect import currentframe, getframeinfo
 
 eln = addmath.eln
@@ -19,6 +19,7 @@ get_exp = addmath.get_exp
 get_eln = addmath.get_eln
 write_to_file_matrix = addmath.write_to_file_matrix
 write_to_file_array = addmath.write_to_file_array
+log_sum_arrays = addmath.log_sum_arrays
 
 
 def hmm_block(reference):
@@ -415,7 +416,54 @@ def count_missing_variables(model, read_tmp, reference_tmp):
     return gamma, xi
 
 
-def update_parameters(training_set, base_model, max_hp_len, b, sigma, hp_freq, len_string, max_iterations, step):
+def process_pair(pair):
+    """
+    Count missing variables and create part of counting tables for this pair from training set.
+    Function on this level because in multiprocessing it must be on higher level.
+    :param pair: [read, reference]
+    :return: [transition matrix, length call matrix, ins_base_call]
+    """
+    states = {0: 'Match', 1: 'Deletion', 2: 'Insertion', 3: 'Begin', 4: 'End'}
+    st_ind = {'Match': 0, 'Deletion': 1, 'Insertion': 2, 'Begin': 3, 'End': 4}
+    bases = {'A': 0, 'C': 1, 'G': 2, 'T': 3}
+
+    read = pair[0]
+    reference = pair[1]
+    base_model = pair[2]
+    max_hp_len = pair[3]
+    # print "\nRead: length", len(read)
+    # print "Reference length: ", len(reference), '\n'
+
+    gamma, xi = count_missing_variables(base_model, read, reference)
+
+    max_hp_read = max(len_max_hp_end(read))    # information about the lengthiest HP
+    max_hp_ref = max(len_max_hp_end(reference))
+
+    trans = float("-inf")*numpy.ones(shape=[len(states), len(states)], dtype=float)
+    len_call = float("-inf")*numpy.ones(shape=[max_hp_len + 1, max_hp_len + 1], dtype=float)
+    ins_base = float("-inf")*numpy.ones(shape=[4], dtype=float)
+
+    # update T (transition matrix), T(pi, pi')
+    for previous in states:
+        for current in states:
+            trans[previous, current] = iter_slog(xi[:, :, previous, current, :, :])
+
+    # update L(k,l) - occurrences of length calling
+    for k in xrange(max_hp_read + 1):     # maximum length of HP. All of not-useful will be -inf
+        for l in xrange(max_hp_ref + 1):
+            # print l, k, "Shape: ", len_call.shape
+            len_call[l, k] = iter_slog(gamma[:, :, k, l, :])
+
+    # update length call for insertion. gamma[i + 1...], because here count read from 0, in gamma from 1
+    for i in xrange(len(read)):
+        ins_base[bases[read[i]]] = log_sum(ins_base[bases[read[i]]],
+                                                iter_slog(gamma[i + 1, :, 1:, 0, st_ind["Insertion"]]))
+    # gamma = xi = None
+    result = [trans, len_call, ins_base]
+    return result
+
+
+def update_parameters(training_set, base_model, max_hp_len, b, sigma, hp_freq, len_string, max_iterations, step, num_proc):
     """
 
     :param training_set: set of pairs read-reference
@@ -424,6 +472,7 @@ def update_parameters(training_set, base_model, max_hp_len, b, sigma, hp_freq, l
     :param b: array with length max_hp_len of scale parameters for Laplace distribution
     :param sigma: scale parameter of log-normal distribution
     :param hp_freq: observed frequencies of homopolymers
+    :param num_proc: numbers of processors
     :return:
     """
 
@@ -493,61 +542,49 @@ def update_parameters(training_set, base_model, max_hp_len, b, sigma, hp_freq, l
         file_tmp.close()
         return 0
 
+    def create_set_cut_pairs(tr_set, cut_value, set_size):
+        """
+        Process read, reference from every pair - cut them (if it is needed), throw away pairs with equal strings
+        :param tr_set: training set
+        :param cut_value: desired length of strings
+        :param set_size: maximum size of set
+        :return: new train set
+        """
+        new_set = []
+        counter = 0
+        for pair in tr_set:   # process every pair of read, reference
+            if counter == set_size:
+                return new_set
+            counter += 1
+            read = pair[0][:cut_value]
+            reference = pair[1][:cut_value]
+            # read = pair[0]
+            # reference = pair[1]
+            # FOR TESTING! Not interesting in alignment of equal string
+            if read == reference:
+                continue
+            new_set.append([read, reference, base_model, max_hp_len])
+        return new_set
+
     states = {0: 'Match', 1: 'Deletion', 2: 'Insertion', 3: 'Begin', 4: 'End'}
     st_ind = {'Match': 0, 'Deletion': 1, 'Insertion': 2, 'Begin': 3, 'End': 4}
     bases = {'A': 0, 'C': 1, 'G': 2, 'T': 3}
     transition_matrix = float("-inf")*numpy.ones(shape=[len(states), len(states)], dtype=float)
     length_call_matrix = float("-inf")*numpy.ones(shape=[max_hp_len + 1, max_hp_len + 1], dtype=float)
     ins_base_call = float("-inf")*numpy.ones(shape=[4], dtype=float)
-    counter = 0
-    max_hp = 0
-    nmb_pair = 0
-    for pair in training_set:   # process every pair of read, reference
-        read = pair[0][:len_string]
-        reference = pair[1][:len_string]
-        # read = pair[0]
-        # reference = pair[1]
-        # FOR TESTING! Not interesting in alignment of equal string
-        if read == reference:
-            continue
-        print nmb_pair
-        nmb_pair += 1
-        # print "\n Step:", counter, '\n'
-        if counter == max_iterations:
-            break
-        counter += 1
-        # print "Read:     ", read, "\nReference:", reference
+    training_set = create_set_cut_pairs(training_set, len_string, max_iterations)
 
-        gamma, xi = count_missing_variables(base_model, read, reference)
+    # t0 = time.time()
+    pool = mp.Pool(processes=num_proc)
+    results = pool.map(process_pair, training_set)
+    # results = [process_pair(item) for item in training_set]
+    # t1 = time.time()
+    # print "EM time, 2 processes: ", t1 - t0
 
-        max_hp_read = max(len_max_hp_end(read))    # information about the lengthiest HP
-        max_hp_ref = max(len_max_hp_end(reference))
-        if max_hp < max_hp_ref:
-            max_hp = max_hp_ref
-        # print gamma.shape
-        # print gamma.max(), numpy.exp(gamma.max()), numpy.log(numpy.exp(gamma.max()))
-        # print xi.max(), numpy.exp(xi.max())
-
-
-        # print "Updating parameters"
-        # update T (transition matrix), T(pi, pi')
-        for previous in states:
-            for current in states:
-                transition_matrix[previous, current] = iter_slog(xi[:, :, previous, current, :, :])
-        # print "Transition matrix done"
-        # update L(k,l) - occurrences of length calling
-        for k in xrange(max_hp_read + 1):     # maximum length of HP. All of not-useful will be -inf
-            for l in xrange(max_hp_ref + 1):
-                # print l, k, "Shape: ", length_call_matrix.shape
-                length_call_matrix[l, k] = iter_slog(gamma[:, :, k, l, :])
-        # print "Length call done"
-        # update length call for insertion. gamma[i + 1...], because here count read from 0, in gamma from 1
-        for i in xrange(len(read)):
-            ins_base_call[bases[read[i]]] = log_sum(ins_base_call[bases[read[i]]],
-                                                    iter_slog(gamma[i + 1, :, 1:, 0, st_ind["Insertion"]]))
-        # print "Information updated"
-        gamma = xi = None
-
+    for item in results:
+        transition_matrix = log_sum_arrays(transition_matrix, item[0])
+        length_call_matrix = log_sum_arrays(length_call_matrix, item[1])
+        ins_base_call = log_sum_arrays(ins_base_call, item[2])
 
     transition_matrix = transition_normalize(transition_matrix)
     ins_base_call = base_call_normalize(ins_base_call)

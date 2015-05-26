@@ -480,16 +480,16 @@ def create_sequence(model, max_size, reference_nucl):
             if next_state == 'Match':
                 # total_match += 1
                 current_hp = model.HMM[current_state_number].emission(reference[current_reference_number], 'Match')
-                # if prev_state == 'Insertion' and prev_base == current_hp.base:
-                #     continue
-                # else:
-                current_reference_number += 1
-                current_state_number += 1
-                number_insertions = 0
+                if prev_state == 'Insertion' and prev_base == current_hp.base:
+                    continue
+                else:
+                    current_reference_number += 1
+                    current_state_number += 1
+                    number_insertions = 0
             elif next_state == 'Insertion':
                 # total_ins += 1
                 current_hp = model.HMM[current_state_number].emission(reference[current_reference_number], 'Insertion')
-                if prev_state == 'Insertion': # or prev_state == 'Match'
+                if prev_state == 'Insertion' or prev_state == 'Match':
                     while prev_base == current_hp.base:
                         current_hp = model.HMM[current_state_number].emission(reference[current_reference_number], 'Insertion')
                 number_insertions += 1
@@ -505,14 +505,15 @@ def create_sequence(model, max_size, reference_nucl):
                 # print 'hmm.py, 242 line, error!'
                 # exit(1)
             sequence.append(current_hp)
-            prev_state = current_state
+            prev_state = current_state[:]
             prev_base = current_hp.base
             state_path.append([current_state_number, next_state])
             if next_state == 'End' or current_reference_number == (len(reference) - 1):
                 break
             current_state = next_state
         # total_numb = float(total_ins + total_match + total_del)
-        # print "Match: ", round(total_match / total_numb, 3), " Deletions: ", round(total_del / total_numb, 3), " Insertions: ", round(total_ins / total_numb, 3)
+        # print "Match: ", round(total_match / total_numb, 3), " Deletions: ", round(total_del / total_numb, 3),
+        # " Insertions: ", round(total_ins / total_numb, 3)
         # print len(reference), total_numb
         # return homopolymer_to_nucleotide(sequence), state_path
         return 1, homopolymer_to_nucleotide(sequence), state_path

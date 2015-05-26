@@ -124,11 +124,11 @@ def count_forward(read_tmp, reference_tmp, model):
         :param hp_output: HP in read
         :return:
         """
-        possible_prev_states = states
-        # if read[i] == read[i - k]:
-        #     possible_prev_states = states_without_ins
-        # else:
-        #     possible_prev_states = states
+        # possible_prev_states = states
+        if read[i] == read[i - k]:
+            possible_prev_states = states_without_ins
+        else:
+            possible_prev_states = states
 
         result = float("-inf")
         for prev_state in possible_prev_states:
@@ -149,9 +149,10 @@ def count_forward(read_tmp, reference_tmp, model):
         :param hp_output: HP in read
         :return:
         """
-        possible_prev_states = states
+        # possible_prev_states = states
         if read[i] == read[i - k]:
-            possible_prev_states = states_without_ins
+            # possible_prev_states = states_without_ins
+            possible_prev_states = {1: 'Deletion'}
             # return 0
         else:
             possible_prev_states = states
@@ -194,7 +195,7 @@ def count_forward(read_tmp, reference_tmp, model):
 
                     if l == 0 and k == 0:
                         continue
-                    elif l == 0:
+                    elif l == 0 and read[i] != read[i - k]:
                         process_insertion(i, j, k, homopolymer(read[i], k))
                     elif k == 0:
                         process_deletion(i, j)
@@ -311,8 +312,8 @@ def count_backward(read_tmp, reference_tmp, model):
                 # Count B(i, j, k, l, Match)
                 if read[i] == reference[j].base:
                     trans_prob = [model.HMM[j].transition('Match', states[k]) for k in xrange(len(states))]
-                    # if i != len_read and read[i] == read[i + 1]:
-                    #     trans_prob[2] = float("-inf")
+                    if i != len_read and read[i] == read[i + 1]:
+                        trans_prob[2] = float("-inf")
                     value = iter_slog(trans_prob + part_two)
                     for k in xrange(1, max_hp_read_e[i] + 1):
                         backward[i, j, k, reference[j].length, state_index['Match']] = value
@@ -325,7 +326,7 @@ def count_backward(read_tmp, reference_tmp, model):
                 # Count B(i, j, k, l, Insertion)
                 trans_prob = [model.HMM[j].transition('Insertion', states[k]) for k in xrange(len(states))]
                 if i != len_read and read[i] == read[i + 1]:
-                    # trans_prob[0] = float("-inf")
+                    trans_prob[0] = float("-inf")
                     trans_prob[2] = float("-inf")
                 value = iter_slog(trans_prob + part_two)
                 for k in xrange(1, max_hp_read_e[i] + 1):

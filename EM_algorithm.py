@@ -6,6 +6,7 @@ from scipy.integrate import quad
 import time
 import multiprocessing as mp
 from inspect import currentframe, getframeinfo
+from scipy.optimize import curve_fit
 
 eln = addmath.eln
 eexp = addmath.eexp
@@ -503,44 +504,40 @@ def update_parameters(training_set, base_model, max_hp_len, b, sigma, hp_freq, l
             x[...] = eln(x)
         return tmp_base
 
-    def write_params():
-        file_tmp = open("Counted_params2.txt", 'a')
-
-        file_tmp.writelines(["Step: ", str(step), '\n\n'])
-
-        # write transition matrix
-        file_tmp.writelines("\n Transition matrix: \n")
-        write_to_file_matrix(file_tmp, get_exp(transition_matrix))
-        for i in xrange(len(transition_matrix[:, 0])):
-            file_tmp.writelines(["\n" + str(sum(get_exp(transition_matrix[i, :]))) + "\n"])
-
-        # write insertion base call
-        file_tmp.writelines("\n Insertion base call: \n")
-        write_to_file_array(file_tmp, get_exp(ins_base_call))
-        file_tmp.writelines(["\n" + str(sum(get_exp(ins_base_call))) + "\n"])
-
-        # write b
-        file_tmp.writelines("\n Previous b: \n")
-        write_to_file_array(file_tmp, b)
-        file_tmp.writelines("\n Current b: \n")
-        write_to_file_array(file_tmp, new_b)
-
-        # write sigma
-        file_tmp.writelines("\n Previous sigma: \n" + str(sigma) + '\n')
-        file_tmp.writelines("\n Current sigma: \n" + str(new_sigma) + '\n')
-
-        # write insertion length call
-        file_tmp.writelines("\n Length call (insertion): \n")
-        write_to_file_array(file_tmp, get_exp(length_call_ins))
-        file_tmp.writelines(["\n" + str(sum(get_exp(length_call_ins))) + "\n"])
-
-        # write match length call
-        file_tmp.writelines("\n Length call (match): \n")
-        write_to_file_matrix(file_tmp, get_exp(length_call_match))
-        for i in xrange(len(length_call_match[:, 0])):
-            file_tmp.writelines(["\n" + str(sum(get_exp(length_call_match[i, :]))) + "\n"])
-        file_tmp.close()
-        return 0
+    # def write_params():
+    #     file_tmp = open("Counted_params.txt", 'a')
+    #
+    #     file_tmp.writelines(["Step: ", str(step), '\n\n'])
+    #
+    #     # write transition matrix
+    #     file_tmp.writelines("\n Transition matrix: \n")
+    #     write_to_file_matrix(file_tmp, get_exp(transition_matrix))
+    #     for i in xrange(len(transition_matrix[:, 0])):
+    #         file_tmp.writelines(["\n" + str(sum(get_exp(transition_matrix[i, :]))) + "\n"])
+    #
+    #     # write insertion base call
+    #     file_tmp.writelines("\n Insertion base call: \n")
+    #     write_to_file_array(file_tmp, get_exp(ins_base_call))
+    #
+    #     # write b
+    #     file_tmp.writelines("\n Previous b: \n")
+    #     write_to_file_array(file_tmp, b)
+    #     file_tmp.writelines("\n Current b: \n")
+    #     write_to_file_array(file_tmp, new_b)
+    #
+    #     # write sigma
+    #     file_tmp.writelines("\n Previous sigma: \n" + str(sigma) + '\n')
+    #     file_tmp.writelines("\n Current sigma: \n" + str(new_sigma) + '\n')
+    #
+    #     # write insertion length call
+    #     file_tmp.writelines("\n Length call (insertion): \n")
+    #     write_to_file_array(file_tmp, get_exp(length_call_ins))
+    #
+    #     # write match length call
+    #     file_tmp.writelines("\n Length call (match): \n")
+    #     write_to_file_matrix(file_tmp, get_exp(length_call_match))
+    #     file_tmp.close()
+    #     return 0
 
     def create_set_cut_pairs(tr_set, cut_value, set_size):
         """
@@ -597,7 +594,7 @@ def update_parameters(training_set, base_model, max_hp_len, b, sigma, hp_freq, l
 
     length_call_match, length_call_ins, new_b, new_sigma = update_length_call_parameters(length_call_matrix,
                                                                                        b, max_hp_len, hp_freq, sigma)
-    write_params()
+    # write_params()
     return ins_base_call, length_call_match, length_call_ins, transition_matrix, new_b, new_sigma
 
 
@@ -610,7 +607,6 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
     :param sigma: parameter of log-normal distribution
     :return: udpated length call matrix, length cal insertion array
     """
-    # length_call_matrix = numpy.exp(length_call_matrix_ln)
     length_call_matrix = get_exp(length_call_matrix_ln)
 
     f_start = 0.0001
@@ -650,12 +646,6 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
                 tmp[k, ff] = p_f_l[ff, k] * p_k[k] / z_f[ff]
         return tmp
 
-    # def count_p_f_zero(sigma):
-    #     # tmp = numpy.zeros(shape=[len(f)], dtype=float)
-    #     for ff in xrange(len(f)):
-    #         p_f_l[ff, 0] = lognorm.pdf(f[ff], 1, loc=0, scale=sigma)
-    #     return tmp
-
     def expectation_step():
         """
         Count p(f|k,l) (p_f_k_l and p_f_k_zero) (See supplementary)
@@ -684,26 +674,58 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
         #     res += x[i] * y[i]
         return res
 
-    def count_b():
+    def count_b(max_length):
         """
         Count parameters b of Laplace distribution. l > 0.
         Write result in created before new_b
         :return: 0
         """
-        tmp_b  = numpy.ones(shape=[max_length_hp + 1], dtype=float)
+
+        def laplace_parameters(b):
+            """
+            Count c_0, c_1, c_2: b = c_0 + c_1 * l^c_2.
+            :param b: b, for which L_{l,l} > 1000 (on server)
+            :return: parameters
+            """
+            print b
+            def func(x, a, b, c):
+                return a + b *pow(x, c)
+            x_data = range(1, len(b) + 1)
+            y_data = b[:]
+            popt, pcov = curve_fit(func, x_data, y_data, p0=(0.0666, 0.0472, 1.231))
+            return popt[0], popt[1], popt[2]
+
+        def test_count_b(max_len, c):
+            """
+            Take parameters from article and count b. b = c_0 + c_1*l^c_2
+            :param max_length: maximum length of homopolymer
+            :param c: [c_0, c_1, c_2]: b = c_0 + c_1 * x ^ c_2
+            :return: array of length max_length + 1 - for convenience call b[l]
+            """
+            c_0 = c[0]
+            c_1 = c[1]
+            c_2 = c[2]
+            res = [0]
+            for l in xrange(max_len):
+                res += [c_0 + c_1 * l**c_2]
+            return res
+
+        tmp_b = []
+
         # count b for l > 0
         for l in xrange(1, max_length_hp + 1):
+            if length_call_matrix[l, l] <= 0:
+                break
             num = 0
             denom = 0
             for k in xrange(1, max_length_hp + 1):
                 tmp_num = [p_f_k_l[ff, k, l] * abs(f[ff] - l) for ff in xrange(len(f))]
                 num = num + length_call_matrix[l, k] * sum(tmp_num)
                 denom = denom + sum(p_f_k_l[:, k, l]) * length_call_matrix[l, k]
-            if denom == 0:
-                print "Denom 0! And l = ", l
-                tmp_b[l] = 0
-            else:
-                tmp_b[l] = num / denom
+            tmp_b.append(num / denom)
+        c = laplace_parameters(tmp_b)
+        print "Fitted c_0, c_1, c_2: ", c
+        tmp_b = [0] + tmp_b + test_count_b(max_length, c)[len(tmp_b):]
         return tmp_b
 
     def count_sigma():
@@ -720,12 +742,7 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
         for ff in xrange(len(f)):
             element = sum([p_f_k_l[ff, k, 0] * length_call_matrix[0, k] for k in xrange(max_length_hp)])
             denom += element
-            if f[ff] > 0:
-                num += (element * numpy.power(eln(f[ff]), 2))
-            # for k in xrange(max_length_hp):
-            #     element = p_f_k_l[ff, k, 0] * length_call_matrix[0, k]
-            #     denom += element
-            #     num += (element * eln(f[ff])**2)
+            num += (element * numpy.power(eln(f[ff]), 2))
         return numpy.sqrt(num / denom)
 
     def count_length_call_match(max_hp_length, scale, pk):
@@ -830,27 +847,20 @@ def update_length_call_parameters(length_call_matrix_ln, b, max_length_hp, p_k, 
     p_f_l = count_p_f_l(b, sigma)     # p(f | l)
     z_f = count_z_f()      # Coefficient of normalize Z = \sum_{k}p(f | k) * p(k)
     p_k_f = count_p_k_f()       # p(k | f)
-    # p_f_zero = count_p_f_zero(sigma)    # p(f | 0)
-    # p_f_k_zero, p_f_k_l = expectation_step()     # p(f | k, 0),  p(f | k, l)
     p_f_k_l = expectation_step()
-    write_evr()
+    # write_evr()
 
-    # new_b = count_b()
+    # new_b = count_b(max_length_hp)
+    # print new_b
     new_b = b[:max_length_hp + 1]
 
     for i in xrange(1, len(new_b)):
         if new_b[i] == 0:
-        # if math.isnan(new_b[i]):
             new_b[i] = new_b[i - 1] + (new_b[i - 1] - new_b[i - 2])/2.0
 
     new_sigma = count_sigma()
 
-    # length_call_match = count_length_call_match(max_length_hp, new_b, p_k)
-    # length_call_insertion = count_length_insertion(max_length_hp, new_sigma, new_b, p_k)
-
     length_call_match = count_length_call_match(max_length_hp, new_b, p_k)
     length_call_insertion = count_length_insertion(max_length_hp, new_sigma, new_b, p_k)
     return get_eln(length_call_match), get_eln(length_call_insertion), new_b, new_sigma
-
- # [-74060.59080823003, -52696.971796909886, -45789.575660357419, -45408.673944728966, -46163.627544332579, -47329.779882258939]
 

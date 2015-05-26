@@ -1,11 +1,12 @@
 import EM_algorithm as em
 import re
 import hmm
+import addmath
 import Viterbi as vit
 import numpy
-from inspect import currentframe, getframeinfo
 import time
 import multiprocessing as mp
+write_to_file_array = addmath.write_to_file_array
 
 def form_train_parameters(fasta_name):
     """
@@ -431,15 +432,15 @@ def main():
                "TTAAAAAAGAGTGTCTGATAGCAGCTTCTGAACTGGTTACCTGCCGTGAGTAAATTAAAATTTTATTGACTTAGGTCACTAAATACTTTAACCAATATAGG" \
                "CATAGCGCACAGACAGATAAAAATTACAGAGTACACAACATCCATGAAACGCATTAGCACCACCATTACCACCACCATCACCATTACCACAGGTAACGGTG" \
                "CGGGCTGACGACGTACAGGAAACACAGAAAAAAGCCCGCTAC"
-    cur_len = 100500
+    cur_len = 100
     sigma = 1
-    max_iterations = 80
+    max_iterations = 50
     lik = []    # list of likelihood for models
-    num_proc = 2
+    num_proc = 6
     fasta_name = "DH10B-K12.fasta"
     gen_set_filename = "generated_train_set.txt"
     train_set_filename = "C11_training_set.txt"
-    par_file_name = "HMM_parameters.txt"
+    par_file_name = "HMM_parameters2.txt"
     is_generate_set = False
 
     # clean file for parameters
@@ -448,8 +449,8 @@ def main():
     hmm_model = hmm.HmmModel(par_file_name)
     print "Test model created"
 
-    # freq, b, max_hp_ref = form_train_set(fasta_name)
-    freq, cheat_b, max_hp_ref = form_train_parameters(fasta_name)
+    freq, b, max_hp_ref = form_train_parameters(fasta_name)
+    # freq, cheat_b, max_hp_ref = form_train_parameters(fasta_name)
 
     if is_generate_set:
         generate_set(hmm_model, sequence, max_iterations, len(sequence), gen_set_filename)
@@ -475,12 +476,24 @@ def main():
     i = 1
     while True:
         print "Step: ", i
-        parameters_file.writelines(["Step: ", str(i), '\n'])
-        ins_base, len_match, len_ins, trans, b, sigma = em.update_parameters(train_set, hmm_model,
-                                                max_hp_ref, cheat_b, sigma, freq, cur_len, max_iterations, i, num_proc)
+        # parameters_file.writelines(["Step: ", str(i), '\n'])
+        # ins_base, len_match, len_ins, trans, b, sigma = em.update_parameters(train_set, hmm_model,
+        #                                      max_hp_ref, cheat_b, sigma, freq, cur_len, max_iterations, i, num_proc)
 
-        # ins_base, len_match, len_ins, trans, b, sigma = em.update_parameters(train_set, hmm_model, max_hp_ref, b,
-        #                                                                      sigma, freq, cur_len, max_iterations, i)
+        parameters_file = open(par_file_name, 'a')
+        parameters_file.write("\n Previous b: ")
+        write_to_file_array(parameters_file, b)
+        parameters_file.close()
+        t_start = time.time()
+        ins_base, len_match, len_ins, trans, b, sigma = em.update_parameters(train_set, hmm_model, max_hp_ref, b,
+                                                                    sigma, freq, cur_len, max_iterations, i, num_proc)
+        t_end = time.time()
+        print "Wasted time: ", (t_end - t_start)/1000.0
+
+        parameters_file = open(par_file_name, 'a')
+        parameters_file.write("\n Current b: ")
+        write_to_file_array(parameters_file, b)
+        parameters_file.close()
 
         trans[3, ] = em.get_eln([0.9, 0.05, 0.05, 0, 0.0001])
         trans[4, ] = em.get_eln([0.0, 0.0, 0.0, 0.0, 1.0])
@@ -489,7 +502,7 @@ def main():
         write_likelihood(par_file_name, lik[i])
         print "Model created, ", "Likelihood: ", lik[i]
         print lik
-        if abs(lik[i] - lik[i]) < 0.05 or i > 15:
+        if abs(lik[i] - lik[i - 1]) < 0.05 or i > 15:
             break
         i += 1
 
